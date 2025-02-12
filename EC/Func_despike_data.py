@@ -2,106 +2,314 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 import os
+from scipy.ndimage import median_filter
 
 
 
-def despike_fast_MAD(fastdata, slowdata, window, calibration_data):
+def apply_plausibility_limits(fastdata, plim):
     """
-    This function .. based on "modified_mad_filter" (Sigmund et al., 2022)
+    This function applies plausibility limits to the fast data.
     """
-        
-    # #Plausibility limits
-    fastdata = fastdata[(fastdata['Ux'] < 40) & (fastdata['Ux'] > -40)]
-    fastdata = fastdata[(fastdata['Uy'] < 40) & (fastdata['Uy'] > -40)]
-    fastdata = fastdata[(fastdata['Uz'] < 10) & (fastdata['Uz'] > -10)]
-    fastdata = fastdata[(fastdata['Ts'] < 20) & (fastdata['Ts'] > -25)]
-    fastdata = fastdata[(fastdata['LI_H2Om'] < 1000) & (fastdata['LI_H2Om'] > -1000)]
-    freq=fastdata.index[1]-fastdata.index[0]
-    fastdata = fastdata.resample(freq).mean() 
+    fastdata_plaus = fastdata.copy()
+    # Check 'u' values
+    in_out = fastdata['Ux'].abs() > plim['abs.u'].iloc[0]
+    if in_out.any():
+        print(f"Plausibility limits: Discarding {in_out.sum()} 'u' records.")
+        fastdata_plaus.loc[in_out, 'Ux'] = np.nan
+
+    # Check 'v' values
+    in_out = fastdata_plaus['Uy'].abs() > plim['abs.v'].iloc[0]
+    if in_out.any():
+        print(f"Plausibility limits: Discarding {in_out.sum()} 'v' records.")
+        fastdata_plaus.loc[in_out, 'Uy'] = np.nan
+
+    # Check 'w' values
+    in_out = fastdata_plaus['Uz'].abs() > plim['abs.w'].iloc[0]
+    if in_out.any():
+        print(in_out)
+        print(f"Plausibility limits: Discarding {in_out.sum()} 'w' records.")
+        fastdata_plaus.loc[in_out, 'Uz'] = np.nan
+
+    # Check 'Ts' values
+    in_out = (fastdata_plaus['Ts'] > plim['Ts.up'].iloc[0]) | (fastdata_plaus['Ts'] < plim['Ts.low'].iloc[0])
+    if in_out.any():
+        print(f"Plausibility limits: Discarding {in_out.sum()} 'Ts' records.")
+        fastdata_plaus.loc[in_out, 'Ts'] = np.nan
+
+    # Check 'LI_H2Om' values
+    in_out = (fastdata_plaus['LI_H2Om'] < plim['h2o.low'].iloc[0]) | (fastdata_plaus['LI_H2Om'] > plim['h2o.up'].iloc[0])
+    if in_out.any():
+        print(f"Plausibility limits: Discarding {in_out.sum()} 'H2O' records.")
+        fastdata_plaus.loc[in_out, 'LI_H2Om'] = np.nan
+
+    # # Check 'LI_Pres' values if 'LI_Pres' column exists
+    # if 'LI_Pres' in fastdata_plaus.columns:
+    #     in_out = (fastdata_plaus['LI_Pres'] < plim['pres.low'].iloc[0]) | (fastdata_plaus['LI_Pres'] > plim['pres.up'].iloc[0])
+    #     if in_out.any():
+    #         print(f"Plausibility limits: Discarding {in_out.sum()} 'pressure' records.")
+    #         fastdata_plaus.loc[in_out, 'LI_Pres'] = np.nan
+    return fastdata_plaus
 
 
-    df_WindLF=pd.DataFrame()
-    df_WindLF[['LI_H2Om_Avg','LI_Pres_Avg']]=fastdata[['H2O', 'P']].groupby(pd.Grouper(freq='30min')).mean()
-    slowdata=pd.DataFrame()
-    slowdata['TA']=fastdata['Ts'].groupby(pd.Grouper(freq='30min')).mean()
 
+def compute_h2o_concentration(RH, TA):
+    """
+    Compute H2O concentration from relative humidity (RH) and temperature (T).
+    Parameters:
+    RH (pd.Series): Relative humidity in percentage.
+    TA (pd.Series): Temperature in degrees Celsius.
+    """
+    es = 611.2 * np.exp(17.67 * TA / (TA + 243.5)) *(RH/100) #Pa
+    h2o_concentration = (1000 * es/  (8.314 * (TA+273.15)))   #mmol m^-3
+    
+    return h2o_concentration
+
+
+def h2o_calibration(calibration_coefficients, fastdata_plaus, slowdata, freq):
+    """
+    This function calibrates the H2O mixing ratio measurements using the calibration coefficients and slow data.
+    """
+    #Calibration coefficients and polynomial
+    df_LF=pd.DataFrame()
+    df_LF[['LI_H2Om_Avg','LI_Pres_Avg']]=fastdata_plaus[['LI_H2Om', 'LI_Pres']].groupby(pd.Grouper(freq='30min')).mean()
+    # df_LF['RH']=slowdata['RH'].groupby(pd.Grouper(freq='30min')).mean()
+    # df_LF['TA']=slowdata['TA'].groupby(pd.Grouper(freq='30min')).mean()
 
     ###Bias correction of Water Vapour
     #Create a dataframe with the LF variables and calculate the molar density difference between RH and LI
     df_vap=pd.DataFrame()
-    df_vap = pd.concat([slowdata[['TA','RH']], df_WindLF[['LI_H2Om_Avg','LI_Pres_Avg']]], axis=1)
-    df_vap = df_vap.astype(float)
+    slowdata_resampled = slowdata[['TA', 'RH']].resample('30min').mean()
+    df_LF_resampled = df_LF[['LI_H2Om_Avg', 'LI_Pres_Avg']].resample('30min').mean()
+    df_vap = pd.concat([slowdata_resampled, df_LF_resampled], axis=1)
     df_vap['LI_Pres_Avg'] = (df_vap['LI_Pres_Avg']) * 1000 #Convert Pres units to Pa
-    df_vap['es'] = 611.2 * np.exp(17.67 * df_vap['TA'] / (df_vap['TA'] + 243.5)) *(df_vap['RH']/100) #Pa
-    df_vap['RH_H2Om_Avg'] = (1000 * df_vap['es'] /  (8.314 * (df_vap['TA']+273.15)))   #mmol m^-3
+    # df_vap['es'] = 611.2 * np.exp(17.67 * df_vap['TA'] / (df_vap['TA'] + 243.5)) *(df_vap['RH']/100) #Pa
+    # df_vap['RH_H2Om_Avg'] = (1000 * df_vap['es'] /  (8.314 * (df_vap['TA']+273.15)))   #mmol m^-3
+    df_vap['RH_H2Om_Avg'] = compute_h2o_concentration(df_vap['RH'], df_vap['TA'])
     df_vap['H2Om_Diff'] = df_vap['LI_H2Om_Avg'] - df_vap['RH_H2Om_Avg']
     df_vap['LI_y'] = df_vap['LI_H2Om_Avg'] / df_vap['LI_Pres_Avg'] * 1000 #mmmol m^-3 kPa^-1
     df_vap['RH_y'] = df_vap['RH_H2Om_Avg'] / df_vap['LI_Pres_Avg'] * 1000 #mmmol m^-3 kPa^-1
-    print('Mean H2O concentration difference: ' + str(df_vap['H2Om_Diff']))
-
-    #Calibration coefficients and polynomial
-    A = 5.49957E3
-    B = 4.00024E6
-    C = -1.11280E8
-    H2O_Zero = 0.8164
-    H20_Span = 1.0103
-
+    print('Mean H2O concentration difference: ' + str(df_vap['H2Om_Diff'].mean()))
     #Calculate minutal absorptance using calibration polynomial
-    df_vap = df_vap.dropna()
-    def polyapp(y):
+    def polyapp(y, calibration_coefficients):
+        if np.isnan(y):
+            return np.nan
         #global counter
         #counter = counter+1; print(np.round(counter/total_items*100,3), end="\r")
-        p = np.poly1d([C,B,A, y])
+        p = np.poly1d([calibration_coefficients['C'], calibration_coefficients['B'], calibration_coefficients['A'], y])
+        p = np.poly1d([calibration_coefficients['C'],calibration_coefficients['B'],calibration_coefficients['A'], y])
         return p.roots[1].real
 
-    print(df_vap.shape[0])
+    print('Shape of df_vapp: ', df_vap.shape[0])
     total_items = df_vap.shape[0]
     counter = 0
-    print('Processing large dataset (%)')
-    df_vap['LI_a'] = df_vap['LI_y'].apply(lambda y: polyapp(-y)) #LI absorptance
+    df_vap['LI_a'] = df_vap['LI_y'].apply(lambda y: polyapp(-y, calibration_coefficients)) #LI absorptance
+    df_vap['LI_a'] = df_vap['LI_y'].apply(lambda y: polyapp(-y, calibration_coefficients)) #LI absorptance
     #print(df_vap['LI_a'])
     counter = 0
-    print('Processing large dataset (%)')
-    df_vap['RH_a'] = df_vap['RH_y'].apply(lambda y: polyapp(-y)) #RH absorptance
-    df_vap['LI_a_raw'] = df_vap['LI_a'] * df_vap['LI_Pres_Avg']/1000 / H20_Span #LI raw absorptance
-    df_vap['RH_a_raw'] = df_vap['RH_a'] * df_vap['LI_Pres_Avg']/1000 / H20_Span #RH raw absorptance
-    df_vapHF = df_vap[['LI_a_raw', 'RH_a_raw']].resample('0.1S').ffill() #High-resolution absorptances
-    print(df_vapHF)    
-    df_vap
+    df_vap['RH_a'] = df_vap['RH_y'].apply(lambda y: polyapp(-y, calibration_coefficients)) #RH absorptance
+    df_vap['RH_a'] = df_vap['RH_y'].apply(lambda y: polyapp(-y, calibration_coefficients)) #RH absorptance
+    df_vap['LI_a_raw'] = df_vap['LI_a'] * df_vap['LI_Pres_Avg']/1000 / calibration_coefficients['H20_Span'] #LI raw absorptance
+    df_vap['RH_a_raw'] = df_vap['RH_a'] * df_vap['LI_Pres_Avg']/1000 / calibration_coefficients['H20_Span'] #RH raw absorptance
+    df_vapHF = df_vap[['LI_a_raw', 'RH_a_raw']].resample(freq).ffill() #High-resolution absorptances
+    # print(df_vapHF)    
 
     #Calculate 10Hz absorptance using calibration polynomial and correct the H2O mol
-    df_Wind_p = fastdata
-    df_Wind_p = pd.concat([df_Wind_p,df_vapHF], axis=1) #Add 30 minutely absorptances to fast data
-    df_Wind_p = df_Wind_p.dropna()
-    df_Wind_p['LI_Pres'] = (df_Wind_p['P'])  * 1000 #so this is in Pa
-    df_Wind_p['LI_y_fast'] = df_Wind_p['H2O'] / df_Wind_p['LI_Pres'] *1000 #mmmol m^-3 kPa^-1
-    print(df_Wind_p.shape[0])
-    total_items = df_Wind_p.shape[0]
+    df_p = fastdata_plaus.copy()
+    df_p = pd.concat([df_p,df_vapHF], axis=1) #Add 30 minutely absorptances to fast data
+    # df_p = df_p.dropna()
+    df_p['LI_Pres'] = (df_p['LI_Pres'])  * 1000 #so this is in Pa
+    df_p['LI_y_fast'] = df_p['LI_H2Om'] / df_p['LI_Pres'] *1000 #mmmol m^-3 kPa^-1
+    print('Shape of df_p: ', df_p.shape[0])
+    total_items = df_p.shape[0]
     counter = 0
 
-    print('Processing large dataset (%)')
-    df_Wind_p['LI_a_fast'] = df_Wind_p['LI_y_fast'].apply(lambda y: polyapp(-y)) #LI absorptance
-    df_Wind_p['LI_a_raw_fast'] = df_Wind_p['LI_a_fast'] * df_Wind_p['LI_Pres']/1000 / H20_Span #LI raw absorptance
-    df_Wind_p['LI_a_corr_fast'] = ((1 - df_Wind_p['RH_a_raw']) * df_Wind_p['LI_a_raw_fast'] - df_Wind_p['LI_a_raw'] + df_Wind_p['RH_a_raw']) / (1 - df_Wind_p['LI_a_raw']) #correction of raw absorptance
-    df_Wind_p['LI_a_norm_fast'] =  df_Wind_p['LI_a_corr_fast'] / df_Wind_p['LI_Pres']*1000 * H20_Span
-    df_Wind_p['LI_y_norm_fast'] = A*df_Wind_p['LI_a_norm_fast']+ B*df_Wind_p['LI_a_norm_fast']**2 + C*df_Wind_p['LI_a_norm_fast']**3
-    df_Wind_p['LI_H2Om_corr'] = df_Wind_p['LI_y_norm_fast'] * df_Wind_p['LI_Pres']/1000 #mmol/m^-3
-    df_Wind_p['LI_H2Om_corr'] = df_Wind_p['LI_H2Om_corr'].round(1)
+    df_p['LI_a_fast'] = df_p['LI_y_fast'].apply(lambda y: polyapp(-y, calibration_coefficients)) #LI absorptance
+    df_p['LI_a_fast'] = df_p['LI_y_fast'].apply(lambda y: polyapp(-y, calibration_coefficients)) #LI absorptance
+    df_p['LI_a_raw_fast'] = df_p['LI_a_fast'] * df_p['LI_Pres']/1000 / calibration_coefficients['H20_Span'] #LI raw absorptance
+    df_p['LI_a_corr_fast'] = ((1 - df_p['RH_a_raw']) * df_p['LI_a_raw_fast'] - df_p['LI_a_raw'] + df_p['RH_a_raw']) / (1 - df_p['LI_a_raw']) #correction of raw absorptance
+    df_p['LI_a_norm_fast'] =  df_p['LI_a_corr_fast'] / df_p['LI_Pres']*1000 * calibration_coefficients['H20_Span']
+    df_p['LI_y_norm_fast'] = calibration_coefficients['A']*df_p['LI_a_norm_fast']+ calibration_coefficients['B']*df_p['LI_a_norm_fast']**2 + calibration_coefficients['C']*df_p['LI_a_norm_fast']**3
+    df_p['LI_H2Om_corr'] = df_p['LI_y_norm_fast'] * df_p['LI_Pres']/1000 #mmol/m^-3
+    df_p['LI_H2Om_corr'] = df_p['LI_H2Om_corr'].round(1)
 
-    print(df_Wind_p[['LI_H2Om_corr']])
-    df_Wind_p = df_Wind_p.drop(columns=['LI_a_raw','RH_a_raw','LI_Pres', 'LI_y_fast', 'LI_a_fast', 'LI_a_raw_fast', 'LI_a_corr_fast', 'LI_a_norm_fast', 'LI_y_norm_fast'])
-    df_Wind_p
+    df_p.drop(columns=['LI_a_raw','RH_a_raw','LI_Pres', 'LI_y_fast', 'LI_a_fast', 'LI_a_raw_fast', 'LI_a_corr_fast', 'LI_a_norm_fast', 'LI_y_norm_fast'], inplace=True)
+    return df_p
 
+def plot_despiking_results(fastdata, fastdata_plaus, df_p, slowdata=None):
+    """
+    This function plots the results of the despiking algorithm.
+    """
+    if 'LI_H2Om' in fastdata.columns:
+        fig, ax=plt.subplots(5,1, figsize=(15,10))
+        ax[4].plot(fastdata['LI_H2Om'], label='LI_H2Om', color='grey')
+        ax[4].plot(fastdata_plaus['LI_H2Om'], label='LI_H2Om_plaus', color='blue')
+        if 'LI_H2Om_corr' in df_p.columns:
+            ax[4].plot(df_p['LI_H2Om_corr'], label='LI_H2Om_despiked', color='red')
+        if slowdata is not None:
+            ax[4].plot(compute_h2o_concentration(slowdata['RH'], slowdata['TA']), label='RH_H2Om', color='green')
+        ax[4].legend()
+        ax[4].set_ylabel('LI_H2Om (mmol/m^-3)')
+
+    else:
+        fig, ax=plt.subplots(4,1, figsize=(15,10))
+    ax[0].plot(fastdata['Ux'], label='Ux', color='grey')
+    ax[0].plot(fastdata_plaus['Ux'], label='Ux_plaus', color='blue')
+    ax[0].plot(df_p['Ux'], label='Ux_despiked', color='red')
+    ax[0].set_ylabel('Ux (m/s)')
+    ax[0].legend()
+    ax[1].plot(fastdata['Uy'], label='Uy', color='grey')
+    ax[1].plot(fastdata_plaus['Uy'], label='Uy_plaus', color='blue')
+    ax[1].plot(df_p['Uy'], label='Uy_despiked', color='red')
+    ax[1].legend()
+    ax[1].set_ylabel('Uy (m/s)')
+    ax[2].plot(fastdata['Uz'], label='Uz', color='grey')
+    ax[2].plot(fastdata_plaus['Uz'], label='Uz_plaus', color='blue')
+    ax[2].plot(df_p['Uz'], label='Uz_despiked', color='red')
+    ax[2].legend()
+    ax[2].set_ylabel('Uz (m/s)')
+    ax[3].plot(fastdata['Ts'], label='Ts', color='grey')
+    ax[3].plot(fastdata_plaus['Ts'], label='Ts_plaus', color='blue')
+    ax[3].plot(df_p['Ts'], label='Ts_despiked', color='red')
+    ax[3].legend()
+    ax[3].set_ylabel('Ts (C)')
+    plt.show()
+
+
+
+def despike_fast_MAD(fastdata, slowdata, plim, calibration_coefficients=None, plot_despike=False, save_despike=False):
+    """
+    This function .. based on "modified_mad_filter" (Sigmund et al., 2022)
+    """
+        
+    freq=fastdata.index[1]-fastdata.index[0]
+    fastdata_plaus=apply_plausibility_limits(fastdata, plim)
+    print('Plausibility limits applied')
+    if calibration_coefficients is not None:
+        print('Applying H2O calibration')
+        fastdata_plaus_calib= h2o_calibration(calibration_coefficients, fastdata_plaus, slowdata, freq)
+        print('H2O calibration applied')
+        # fastdata_plaus = fastdata_plaus.rename(columns={'LI_H2Om_corr': 'LI_H2Om'})
+        df_p=fastdata_plaus_calib.copy()
+    else:
+        df_p=fastdata_plaus.copy()
 
     ###Spike correction
+
     print('Processing large dataset (%)')
-    df_Wind_di = np.abs(df_Wind_p.rolling(window=3000, center=True).median()-df_Wind_p)
-    #df_Wind_MAD = df_Wind_p.rolling(window=6000, center=True).apply(median_abs_deviation)
-    df_Wind_MAD = (np.abs(df_Wind_p-df_Wind_p.rolling(window=3000, center=True).median())).rolling(window=3000, center=True).median()
-    #df_Wind_di = 7 * df_Wind_MAD / 0.6745
-    df_Wind_hat = np.abs(df_Wind_di) - 0.5 * (np.abs(df_Wind_di.shift(-1)) + np.abs(df_Wind_di.shift(1)))
-    df_Wind_hat_MAD = df_Wind_hat / df_Wind_MAD
-    df_Wind_sp = df_Wind_p[np.abs(df_Wind_hat_MAD['U'] + df_Wind_hat_MAD['V'] + df_Wind_hat_MAD['W'] + df_Wind_hat_MAD['Ts']) < 6/0.6745]
-    df_Wind_sp = df_Wind_sp[df_Wind_hat_MAD['LI_H2Om_corr'] < 6/0.6745]
-    df_Wind_sp = df_Wind_sp.resample('0.1S').mean() #resample to have 0.1s values
-    print('Data after Spike Correction:' + str(df_Wind_sp.shape[0]))
+    window = int(5 * 60 / freq.total_seconds()) # 5 minutes
+    df_di = np.abs(df_p.rolling(window=window, center=True).median()-df_p)
+    #df_MAD = df_p.rolling(window=6000, center=True).apply(median_abs_deviation)
+    df_MAD = (np.abs(df_p-df_p.rolling(window=window, center=True).median())).rolling(window=window, center=True).median()
+    #df_di = 7 * df_MAD / 0.6745
+    df_hat = np.abs(df_di) - 0.5 * (np.abs(df_di.shift(-1)) + np.abs(df_di.shift(1)))
+    df_hat_MAD = df_hat / df_MAD
+    spike_condition = np.abs(df_hat_MAD['Ux'] + df_hat_MAD['Uy'] + df_hat_MAD['Uz'] + df_hat_MAD['Ts']) >= 6 / 0.6745
+    if calibration_coefficients is not None:
+        spike_condition |= df_hat_MAD['LI_H2Om_corr'] >= 6 / 0.6745
+        # Set spikes to NaN
+        df_p.loc[spike_condition, ['Ux', 'Uy', 'Uz', 'Ts', 'LI_H2Om_corr']] = np.nan
+        print('Spikes removed from Ux,Uy,Uz,Ts:' + str(df_p['Ux'].isna().sum()-fastdata_plaus['Ux'].isna().sum()), 'Spikes removed from LI_H2Om_corr:' + str(df_p['LI_H2Om_corr'].isna().sum()-fastdata_plaus['LI_H2Om'].isna().sum()))
+    elif 'LI_H2Om' not in df_p.columns:
+        df_p.loc[spike_condition, ['Ux', 'Uy', 'Uz', 'Ts']] = np.nan
+        print('Spikes removed from Ux,Uy,Uz,Ts:' + str(df_p['Ux'].isna().sum()-fastdata_plaus['Ux'].isna().sum()))
+    else:
+        spike_condition |= df_hat_MAD['LI_H2Om_corr'] >= 6 / 0.6745
+        # Set spikes to NaN
+        df_p.loc[spike_condition, ['Ux', 'Uy', 'Uz', 'Ts', 'LI_H2Om']] = np.nan
+        print('Spikes removed from Ux,Uy,Uz,Ts:' + str(df_p['Ux'].isna().sum()-fastdata_plaus['Ux'].isna().sum()), 'Spikes removed from LI_H2Om:' + str(df_p['LI_H2Om'].isna().sum()-fastdata_plaus['LI_H2Om'].isna().sum()))
+    if plot_despike==True:
+        plot_despiking_results(fastdata, fastdata_plaus, df_p, slowdata)
+    if save_despike==True:
+        df_p.to_csv('despiked_data.csv')
+    return df_p
+
+
+
+
+
+def despiking(datain, windowwidth=3000, maxsteps=10, breakcrit=1.05):
+    """
+    Despiking algorithm after Sigmund et al. (2022) based on the despiking algorith from Michis Julia scripts
+    """
+    print("Despiking...")
+
+    # Make windowwidth odd if it's even
+    if windowwidth % 2 == 0:
+        windowwidth += 1
+
+    # Criterion to compare to
+    criterion = 6 / 0.6745
+
+    # Replace missing values with NaN
+    datain = datain.replace({pd.NA: np.nan})
+
+    # Initialize spike detection arrays
+    spike = np.zeros(len(datain), dtype=bool)
+    spikeirg = np.zeros(len(datain), dtype=bool)
+    tolook = np.ones(len(datain), dtype=bool)
+
+    # Columns to despike
+    if 'h2o' in datain.columns:
+        colstodespike = ['u', 'v', 'w', 'T', 'h2o']
+    else:
+        colstodespike = ['u', 'v', 'w', 'T']
+
+    devtomedian = datain[colstodespike].copy()
+
+    nrsteps = 0
+    nrspikes = np.zeros(maxsteps, dtype=int)
+    nrspikesirg = np.zeros(maxsteps, dtype=int)
+    nrspikestot = np.zeros(maxsteps, dtype=int)
+    mad_data = np.zeros((len(datain), len(colstodespike)))
+
+    while nrsteps < maxsteps:
+        nrsteps += 1
+        for idx, col in enumerate(colstodespike):
+            tmp = median_filter(datain[col], size=windowwidth)
+            devtomedian[col] = np.abs(datain[col] - tmp)
+            mad_data[:, idx] = median_filter(devtomedian[col], size=windowwidth)
+
+        # Set previously detected spikes to equal the median
+        devtomedian.loc[spike, ['u', 'v', 'w', 'T']] = 0
+        if 'h2o' in colstodespike:
+            devtomedian.loc[spikeirg, 'h2o'] = 0
+
+        for jdx in range(1, len(devtomedian) - 1):
+            if tolook[jdx]:
+                leftside = 0
+                leftsideirg = 0
+                for jcol in range(len(colstodespike)):
+                    a = devtomedian.iloc[jdx, jcol] - np.nanmean([devtomedian.iloc[jdx-1, jcol], devtomedian.iloc[jdx+1, jcol]])
+                    if colstodespike[jcol] != 'h2o':
+                        leftside += a / mad_data[jdx, jcol]
+                    else:
+                        leftsideirg = a / mad_data[jdx, jcol]
+                if leftside > criterion:
+                    spike[jdx] = True
+                if leftsideirg > criterion:
+                    spikeirg[jdx] = True
+
+        nrspikes[nrsteps-1] = np.sum(spike)
+        nrspikesirg[nrsteps-1] = np.sum(spikeirg)
+        nrspikestot[nrsteps-1] = nrspikes[nrsteps-1] + nrspikesirg[nrsteps-1]
+        print(f"nrspikes[{nrsteps-1}] = {nrspikes[nrsteps-1]}")
+        print(f"nrspikesirg[{nrsteps-1}] = {nrspikesirg[nrsteps-1]}")
+        print(f"nrspikestot[{nrsteps-1}] = {nrspikestot[nrsteps-1]}")
+
+        # Only check neighboring to spikes in next step
+        spiketot = spike | spikeirg
+        spikeloc = np.where(spiketot)[0]
+        tolook[:] = False
+        tolook[spikeloc-1] = True
+        tolook[spikeloc+1] = True
+
+        devtomedian.loc[spike, ['u', 'v', 'w', 'T']] = 0
+        if np.sum(spikeirg) != 0:
+            devtomedian.loc[spikeirg, 'h2o'] = 0
+        datain.loc[spike, ['u', 'v', 'w', 'T']] = np.nan
+        if np.sum(spikeirg) != 0:
+            datain.loc[spikeirg, 'h2o'] = np.nan
+        if nrsteps > 1 and nrspikestot[nrsteps-1] / nrspikestot[nrsteps-2] < breakcrit:
+            break
+
+    return datain

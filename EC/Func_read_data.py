@@ -17,9 +17,9 @@ def read_data(folder_path, fastorslow, shortorlong):
     When reading in the data define whether it is fast or slow data and whether you want all columns or only selected amount of columns
     """
     if fastorslow == 'fast':
-        name='TOA5_STN1fast'
+        name='*FAST*.dat'
     if fastorslow == 'slow':
-        name='TOA5_STN1OneMin'
+        name='*SLOW*.dat'
 
     # Initialize an empty list to store DataFrames
     data_frames = []
