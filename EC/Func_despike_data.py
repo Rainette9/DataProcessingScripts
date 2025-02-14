@@ -26,7 +26,6 @@ def apply_plausibility_limits(fastdata, plim):
     # Check 'w' values
     in_out = fastdata_plaus['Uz'].abs() > plim['abs.w'].iloc[0]
     if in_out.any():
-        print(in_out)
         print(f"Plausibility limits: Discarding {in_out.sum()} 'w' records.")
         fastdata_plaus.loc[in_out, 'Uz'] = np.nan
 
@@ -35,12 +34,12 @@ def apply_plausibility_limits(fastdata, plim):
     if in_out.any():
         print(f"Plausibility limits: Discarding {in_out.sum()} 'Ts' records.")
         fastdata_plaus.loc[in_out, 'Ts'] = np.nan
-
-    # Check 'LI_H2Om' values
-    in_out = (fastdata_plaus['LI_H2Om'] < plim['h2o.low'].iloc[0]) | (fastdata_plaus['LI_H2Om'] > plim['h2o.up'].iloc[0])
-    if in_out.any():
-        print(f"Plausibility limits: Discarding {in_out.sum()} 'H2O' records.")
-        fastdata_plaus.loc[in_out, 'LI_H2Om'] = np.nan
+    if 'LI_H2Om' in fastdata_plaus.columns:
+        # Check 'LI_H2Om' values
+        in_out = (fastdata_plaus['LI_H2Om'] < plim['h2o.low'].iloc[0]) | (fastdata_plaus['LI_H2Om'] > plim['h2o.up'].iloc[0])
+        if in_out.any():
+            print(f"Plausibility limits: Discarding {in_out.sum()} 'H2O' records.")
+            fastdata_plaus.loc[in_out, 'LI_H2Om'] = np.nan
 
     # # Check 'LI_Pres' values if 'LI_Pres' column exists
     # if 'LI_Pres' in fastdata_plaus.columns:
@@ -65,25 +64,31 @@ def compute_h2o_concentration(RH, TA):
     return h2o_concentration
 
 
-def h2o_calibration(calibration_coefficients, fastdata_plaus, slowdata, freq):
+def h2o_calibration(calibration_coefficients, fastdata, slowdata):
     """
     This function calibrates the H2O mixing ratio measurements using the calibration coefficients and slow data.
     """
+    freq_LF=slowdata.index[1]-slowdata.index[0]
+    freq=fastdata.index[1]-fastdata.index[0]
+    fastdata_plaus=fastdata.copy()
     #Calibration coefficients and polynomial
     df_LF=pd.DataFrame()
-    df_LF[['LI_H2Om_Avg','LI_Pres_Avg']]=fastdata_plaus[['LI_H2Om', 'LI_Pres']].groupby(pd.Grouper(freq='30min')).mean()
-    # df_LF['RH']=slowdata['RH'].groupby(pd.Grouper(freq='30min')).mean()
-    # df_LF['TA']=slowdata['TA'].groupby(pd.Grouper(freq='30min')).mean()
+    df_LF=pd.DataFrame()
+    if 'TA' not in slowdata.columns:
+        height=str(fastdata_plaus.attrs['heights']['Ts'][0])
+
+        df_LF['TA']=slowdata[f'Temp_{height}m_Avg']
+        df_LF['RH']=slowdata[f'RH_{height}m_Avg']*100 #Convert RH to percentage
+        df_LF[['LI_H2Om_Avg','LI_Pres_Avg']]=slowdata[[f'LI_H2Om_{height}m_Avg', f'LI_Pres_{height}m_Avg']] #.groupby(pd.Grouper(freq='1min')).mean()
+    else:
+        df_LF[['LI_H2Om_Avg','LI_Pres_Avg']]=fastdata_plaus[['LI_H2Om', 'LI_Pres']].groupby(pd.Grouper(freq=freq_LF)).mean()
+        df_LF[['TA','RH']] = slowdata[['TA', 'RH']].resample(freq_LF).mean()
 
     ###Bias correction of Water Vapour
     #Create a dataframe with the LF variables and calculate the molar density difference between RH and LI
     df_vap=pd.DataFrame()
-    slowdata_resampled = slowdata[['TA', 'RH']].resample('30min').mean()
-    df_LF_resampled = df_LF[['LI_H2Om_Avg', 'LI_Pres_Avg']].resample('30min').mean()
-    df_vap = pd.concat([slowdata_resampled, df_LF_resampled], axis=1)
+    df_vap= df_LF.copy()
     df_vap['LI_Pres_Avg'] = (df_vap['LI_Pres_Avg']) * 1000 #Convert Pres units to Pa
-    # df_vap['es'] = 611.2 * np.exp(17.67 * df_vap['TA'] / (df_vap['TA'] + 243.5)) *(df_vap['RH']/100) #Pa
-    # df_vap['RH_H2Om_Avg'] = (1000 * df_vap['es'] /  (8.314 * (df_vap['TA']+273.15)))   #mmol m^-3
     df_vap['RH_H2Om_Avg'] = compute_h2o_concentration(df_vap['RH'], df_vap['TA'])
     df_vap['H2Om_Diff'] = df_vap['LI_H2Om_Avg'] - df_vap['RH_H2Om_Avg']
     df_vap['LI_y'] = df_vap['LI_H2Om_Avg'] / df_vap['LI_Pres_Avg'] * 1000 #mmmol m^-3 kPa^-1
@@ -93,13 +98,11 @@ def h2o_calibration(calibration_coefficients, fastdata_plaus, slowdata, freq):
     def polyapp(y, calibration_coefficients):
         if np.isnan(y):
             return np.nan
-        #global counter
-        #counter = counter+1; print(np.round(counter/total_items*100,3), end="\r")
-        p = np.poly1d([calibration_coefficients['C'], calibration_coefficients['B'], calibration_coefficients['A'], y])
+        # global counter
+        # counter = counter+1; print(np.round(counter/total_items*100,3), end="\r")
         p = np.poly1d([calibration_coefficients['C'],calibration_coefficients['B'],calibration_coefficients['A'], y])
         return p.roots[1].real
 
-    print('Shape of df_vapp: ', df_vap.shape[0])
     total_items = df_vap.shape[0]
     counter = 0
     df_vap['LI_a'] = df_vap['LI_y'].apply(lambda y: polyapp(-y, calibration_coefficients)) #LI absorptance
@@ -111,15 +114,15 @@ def h2o_calibration(calibration_coefficients, fastdata_plaus, slowdata, freq):
     df_vap['LI_a_raw'] = df_vap['LI_a'] * df_vap['LI_Pres_Avg']/1000 / calibration_coefficients['H20_Span'] #LI raw absorptance
     df_vap['RH_a_raw'] = df_vap['RH_a'] * df_vap['LI_Pres_Avg']/1000 / calibration_coefficients['H20_Span'] #RH raw absorptance
     df_vapHF = df_vap[['LI_a_raw', 'RH_a_raw']].resample(freq).ffill() #High-resolution absorptances
-    # print(df_vapHF)    
+
 
     #Calculate 10Hz absorptance using calibration polynomial and correct the H2O mol
     df_p = fastdata_plaus.copy()
+
     df_p = pd.concat([df_p,df_vapHF], axis=1) #Add 30 minutely absorptances to fast data
     # df_p = df_p.dropna()
     df_p['LI_Pres'] = (df_p['LI_Pres'])  * 1000 #so this is in Pa
     df_p['LI_y_fast'] = df_p['LI_H2Om'] / df_p['LI_Pres'] *1000 #mmmol m^-3 kPa^-1
-    print('Shape of df_p: ', df_p.shape[0])
     total_items = df_p.shape[0]
     counter = 0
 
@@ -133,9 +136,9 @@ def h2o_calibration(calibration_coefficients, fastdata_plaus, slowdata, freq):
     df_p['LI_H2Om_corr'] = df_p['LI_H2Om_corr'].round(1)
 
     df_p.drop(columns=['LI_a_raw','RH_a_raw','LI_Pres', 'LI_y_fast', 'LI_a_fast', 'LI_a_raw_fast', 'LI_a_corr_fast', 'LI_a_norm_fast', 'LI_y_norm_fast'], inplace=True)
-    return df_p
+    return df_p, df_LF
 
-def plot_despiking_results(fastdata, fastdata_plaus, df_p, slowdata=None):
+def plot_despiking_results(fastdata, fastdata_plaus, df_p, sensor, slowdata=None):
     """
     This function plots the results of the despiking algorithm.
     """
@@ -149,6 +152,8 @@ def plot_despiking_results(fastdata, fastdata_plaus, df_p, slowdata=None):
             ax[4].plot(compute_h2o_concentration(slowdata['RH'], slowdata['TA']), label='RH_H2Om', color='green')
         ax[4].legend()
         ax[4].set_ylabel('LI_H2Om (mmol/m^-3)')
+        ax[4].set_xlim(fastdata.index[0], fastdata.index[-1])
+        ax[4].set_ylim(0, 700)
 
     else:
         fig, ax=plt.subplots(4,1, figsize=(15,10))
@@ -157,36 +162,45 @@ def plot_despiking_results(fastdata, fastdata_plaus, df_p, slowdata=None):
     ax[0].plot(df_p['Ux'], label='Ux_despiked', color='red')
     ax[0].set_ylabel('Ux (m/s)')
     ax[0].legend()
+    ax[0].set_ylim(-30, 30)
     ax[1].plot(fastdata['Uy'], label='Uy', color='grey')
     ax[1].plot(fastdata_plaus['Uy'], label='Uy_plaus', color='blue')
     ax[1].plot(df_p['Uy'], label='Uy_despiked', color='red')
     ax[1].legend()
+    ax[1].set_ylim(-30, 30)
     ax[1].set_ylabel('Uy (m/s)')
     ax[2].plot(fastdata['Uz'], label='Uz', color='grey')
     ax[2].plot(fastdata_plaus['Uz'], label='Uz_plaus', color='blue')
     ax[2].plot(df_p['Uz'], label='Uz_despiked', color='red')
     ax[2].legend()
+    ax[2].set_ylim(-10, 10)
     ax[2].set_ylabel('Uz (m/s)')
     ax[3].plot(fastdata['Ts'], label='Ts', color='grey')
     ax[3].plot(fastdata_plaus['Ts'], label='Ts_plaus', color='blue')
     ax[3].plot(df_p['Ts'], label='Ts_despiked', color='red')
     ax[3].legend()
     ax[3].set_ylabel('Ts (C)')
+    ax[3].set_ylim(-30, 10)
+    fig.suptitle('Fast data despiked for sensor ' + sensor)
+    plt.savefig(f'/home/engbers/Documents/PhD/Data/EC_despiked/Figures/EC_despiked_{sensor}.png', bbox_inches='tight')
     plt.show()
 
 
 
-def despike_fast_MAD(fastdata, slowdata, plim, calibration_coefficients=None, plot_despike=False, save_despike=False):
+
+
+
+def despike_fast_MAD(fastdata, slowdata, plim, sensor, calibration_coefficients=None, plot_despike=False, save_despike=False):
     """
     This function .. based on "modified_mad_filter" (Sigmund et al., 2022)
     """
-        
+    
     freq=fastdata.index[1]-fastdata.index[0]
     fastdata_plaus=apply_plausibility_limits(fastdata, plim)
     print('Plausibility limits applied')
     if calibration_coefficients is not None:
         print('Applying H2O calibration')
-        fastdata_plaus_calib= h2o_calibration(calibration_coefficients, fastdata_plaus, slowdata, freq)
+        fastdata_plaus_calib, df_LF= h2o_calibration(calibration_coefficients, fastdata_plaus, slowdata)
         print('H2O calibration applied')
         # fastdata_plaus = fastdata_plaus.rename(columns={'LI_H2Om_corr': 'LI_H2Om'})
         df_p=fastdata_plaus_calib.copy()
@@ -217,8 +231,10 @@ def despike_fast_MAD(fastdata, slowdata, plim, calibration_coefficients=None, pl
         # Set spikes to NaN
         df_p.loc[spike_condition, ['Ux', 'Uy', 'Uz', 'Ts', 'LI_H2Om']] = np.nan
         print('Spikes removed from Ux,Uy,Uz,Ts:' + str(df_p['Ux'].isna().sum()-fastdata_plaus['Ux'].isna().sum()), 'Spikes removed from LI_H2Om:' + str(df_p['LI_H2Om'].isna().sum()-fastdata_plaus['LI_H2Om'].isna().sum()))
-    if plot_despike==True:
-        plot_despiking_results(fastdata, fastdata_plaus, df_p, slowdata)
+    if plot_despike==True and calibration_coefficients is not None:
+        plot_despiking_results(fastdata, fastdata_plaus, df_p, sensor, df_LF)
+    if plot_despike==True and calibration_coefficients is None:
+        plot_despiking_results(fastdata, fastdata_plaus, df_p, sensor)
     if save_despike==True:
         df_p.to_csv('despiked_data.csv')
     return df_p
