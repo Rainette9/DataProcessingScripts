@@ -6,7 +6,7 @@ import re
 
 
 
-def read_data(folder_path, fastorslow, sensor, start=None, end=None):
+def read_data(folder_path, fastorslow, sensor, start=None, end=None, plot_data=False):
     """
     Function to read .da data files from a folder and concatenate them into a single DataFrame. 
     Columns should be in order of 'TIMESTAMP', 'RECORD', 'Ux', 'Uy', 'Uz', 'Ts', 'diag_csat', 'LI_H2Om', 'LI_Pres', 'LI_diag' for fast data
@@ -25,20 +25,25 @@ def read_data(folder_path, fastorslow, sensor, start=None, end=None):
             name2='TOA'
         if sensor=='U':
             name2='TOA'
+        if sensor=='B':
+            name2='Fast'
     if fastorslow == 'slow':
-        name='SLOW'
+        name='Slow'
         if sensor=='SFC':
-            name='TOA5_STN1OneMin'
+            name2='TOA5_STN1OneMin'
         if sensor=='L':
             name2='SLOW'
         if sensor=='U':
             name2='SLOW'
+        if sensor=='B':
+            name2='TOA5_STN1OneMin'
     # Initialize an empty list to store DataFrames
     data_frames = []
     
     # Iterate over all files in the folder
     for file_name in os.listdir(folder_path):
         if (name in file_name or name2 in file_name) and file_name.endswith('.dat'):
+
             file_path = os.path.join(folder_path, file_name)
             # Read the data from the file
             if fastorslow == 'slow':
@@ -73,9 +78,22 @@ def read_data(folder_path, fastorslow, sensor, start=None, end=None):
     # Store units in a separate attribute
     data.attrs['units'] = units.to_dict()
 
-
+    if plot_data:
+        plot_slow_data(combined_data, sensor)
     return combined_data
 
+
+
+def extract_height_from_column(column_name):
+    """
+    Function to extract height from a column name.
+    Returns the height if present, otherwise returns None.
+    """
+    pattern = re.compile(r'_(\d+)m(_\w+)?$')
+    match = pattern.search(column_name)
+    if match:
+        return int(match.group(1))
+    return None
 
 
 def rename_columns(df):
@@ -146,6 +164,49 @@ def read_data_wind(file_path):
 
 
 
-def plot_slow_data(slowdata): 
-    heights 
-    fig, ax= plt.subplots(2,2, figsize=(15,10))
+def plot_slow_data(slowdata, sensor): 
+    # Plot TA, TS, RH, WD, WS, SWdown, SWup, LWdown, LWup 
+    fig, ax= plt.subplots(6,1, figsize=(15,10))
+    for column_name in slowdata.columns:
+        if 'TA' in column_name or 'Temp' in column_name:
+            if 'PTemp' in column_name:
+                continue    
+            ax[0].plot(slowdata[column_name], label=column_name)
+            ax[0].set_ylabel('Temperature')
+            ax[0].legend()
+        if 'RH' in column_name:
+            ax[1].plot(slowdata[column_name], label=column_name)
+            ax[1].set_ylabel('Relative Humidity')
+            ax[1].legend()
+        if 'WD' in column_name:
+            ax[2].plot(slowdata[column_name], label=column_name)
+            ax[2].set_ylabel('Wind Direction')
+            ax[2].legend()
+        if 'WS' in column_name:
+            if 'Max' in column_name or 'Std' in column_name:
+                continue
+            ax[3].plot(slowdata[column_name], label=column_name)
+            ax[3].set_ylabel('Wind Speed')
+            ax[3].legend()
+        if 'SWdown' in column_name or 'Incoming_SW' in column_name:
+            ax[4].plot(slowdata[column_name], label=column_name)
+            ax[4].set_ylabel('Shortwave Radiation')
+            ax[4].legend()
+        if 'SWup' in column_name or 'Outgoing_SW' in column_name:
+            ax[4].plot(slowdata[column_name], label=column_name)
+            ax[4].set_ylabel('Shortwave Radiation')
+            ax[4].legend()
+        if 'LWdown' in column_name or 'Incoming_LW' in column_name or 'UW' in column_name:
+            ax[5].plot(slowdata[column_name], label=column_name)
+            ax[5].set_ylabel('Longwave Radiation')
+            ax[5].legend()
+        if 'LWup' in column_name or 'Outgoing_LW' in column_name:
+            ax[5].plot(slowdata[column_name], label=column_name)
+            ax[5].set_ylabel('Longwave Radiation')
+            ax[5].legend()
+
+
+    fig.suptitle(f'{sensor} slowdata')
+    plt.savefig(f'{sensor}_slowdata.png')
+        
+    return fig, ax
