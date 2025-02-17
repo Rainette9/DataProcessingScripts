@@ -3,15 +3,15 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 
-def double_rotation(fastdata, blockdur='30T', periodwise=True, gapthresh='10T'):
+def double_rotation(fastdata, blockdur='30min', periodwise=True, gapthresh='10min'):
     """
     Perform double rotation on the wind data in blocks.
     
     Parameters:
     fastdata (pd.DataFrame): DataFrame containing the wind data.
-    blockdur (str): Duration of each block (e.g., '30T' for 30 minutes).
+    blockdur (str): Duration of each block (e.g., '30min' for 30 minutes).
     periodwise (bool): Whether to consider data gaps.
-    gapthresh (str): Threshold for detecting gaps (e.g., '10T' for 10 minutes).
+    gapthresh (str): Threshold for detecting gaps (e.g., '10min' for 10 minutes).
     
     Returns:
     pd.DataFrame: DataFrame with rotated wind data.
