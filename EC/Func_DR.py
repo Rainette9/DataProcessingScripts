@@ -40,7 +40,7 @@ def double_rotation(fastdata, blockdur='30T', periodwise=True, gapthresh='10T'):
                 startidx = fastdata.index.get_loc(gaps['idx_after_gap'].iloc[currnanidx])
                 currnanidx += 1
             else:
-                endidcs.append(startidx + blockduridx - 1)
+                endidcs.append(min(startidx + blockduridx - 1, len(fastdata_rot) - 1))
                 startidx += blockduridx - 1
         endidcs[-1] = len(fastdata) - 1
         print(f"Double rotation period-wise. Considering data gaps (e.g., due to reposition).")
@@ -82,6 +82,89 @@ def double_rotation(fastdata, blockdur='30T', periodwise=True, gapthresh='10T'):
         fastdata.loc[startidx:endidx, 'Uz'] = data2_uz
     
     return fastdata
+
+
+
+def rotate_wind_vector(fastdata, blockdur='30min'):
+    """
+    Transform wind to mean streamline coordinate system using double rotation in timesteps of 30 minutes.
+
+    Parameters
+    ----------
+    fastdata: pd.DataFrame
+        DataFrame containing the wind data with columns 'Ux', 'Uy', 'Uz'.
+    blockdur: str
+        Duration of each block (e.g., '30T' for 30 minutes).
+
+    Returns
+    -------
+    pd.DataFrame
+        DataFrame with rotated wind data.
+    """
+    fastdata_rot=fastdata.copy()
+
+    # Convert block duration to Timedelta
+    blockdur = pd.Timedelta(blockdur)
+    freq=(fastdata.index[1]-fastdata.index[0]).total_seconds()
+    print(freq)
+    print(blockdur)
+    blockduridx = int(blockdur / pd.Timedelta(f'{freq}s'))
+    print(blockduridx)
+    
+    startidx = 0
+    endidcs = []
+    startidcs = []
+
+    while startidx < len(fastdata_rot)- blockduridx:
+        startidcs.append(startidx)
+        endidcs.append(startidx + blockduridx -1)
+        # endidcs.append(min(startidx + blockduridx - 1, len(fastdata) - 1))
+        startidx += blockduridx 
+        # print(startidcs[-1], endidcs[-1])
+        # print(fastdata_rot.index[startidcs[-1]], fastdata_rot.index[endidcs[-1]])
+    endidcs[-1] = len(fastdata_rot) -1
+    print('passed')
+    angles = pd.DataFrame(columns=['theta', 'phi'])
+    for startidx, endidx in zip(startidcs, endidcs):
+        print(fastdata_rot.index[startidx])
+        print(fastdata_rot.index[endidx])
+        print(startidx, endidx)
+        datatouse = fastdata_rot.iloc[startidx:endidx+1]
+        print(datatouse)
+        u_unrot = datatouse['Ux'].values
+        v_unrot = datatouse['Uy'].values
+        w_unrot = datatouse['Uz'].values
+        # Combine winds into matrix
+        wind_unrot = np.c_[u_unrot, v_unrot, w_unrot]
+
+        # Mirror y-axes to get right-handed coordinate system (depends on the sonic)
+        wind_unrot[:, 1] = -wind_unrot[:, 1]
+
+        # First rotation to set mean(v) = 0
+        theta = np.arctan2(np.nanmean(wind_unrot[:, 1]), np.nanmean(wind_unrot[:, 0]))
+
+        rot1 = np.array([[np.cos(theta), -np.sin(theta), 0.], [np.sin(theta), np.cos(theta), 0.], [0, 0, 1]])
+        wind1 = np.dot(wind_unrot, rot1)
+
+        # Second rotation to set mean(w) = 0
+        phi = np.arctan2(np.nanmean(wind1[:, 2]), np.nanmean(wind1[:, 0]))
+        rot2 = np.array([[np.cos(phi), 0, -np.sin(phi)], [0, 1, 0], [np.sin(phi), 0, np.cos(phi)]])
+        wind_rot = np.dot(wind1, rot2)
+
+        u_rot = wind_rot[:, 0]
+        v_rot = wind_rot[:, 1]
+        w_rot = wind_rot[:, 2]
+
+        # Overwrite the input data
+        print('len', len(u_rot))
+        print('len index', len(fastdata_rot.index[startidx:endidx +1]))
+        fastdata_rot.loc[fastdata_rot.index[startidx:endidx +1], 'Ux'] = u_rot
+        fastdata_rot.loc[fastdata_rot.index[startidx:endidx +1], 'Uy'] = v_rot
+        fastdata_rot.loc[fastdata_rot.index[startidx:endidx +1], 'Uz'] = w_rot
+        print(fastdata_rot.index[startidx])
+        angles.loc[fastdata_rot.index[startidx]] = [theta, phi]
+    return fastdata_rot, angles
+
 
 def detect_nan_and_gap(data, gapthresh):
     """

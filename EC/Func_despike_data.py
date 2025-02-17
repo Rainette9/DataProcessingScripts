@@ -226,6 +226,11 @@ def despike_fast_MAD(fastdata, slowdata, plim, sensor, calibration_coefficients=
     elif 'LI_H2Om' not in df_p.columns:
         df_p.loc[spike_condition, ['Ux', 'Uy', 'Uz', 'Ts']] = np.nan
         print('Spikes removed from Ux,Uy,Uz,Ts:' + str(df_p['Ux'].isna().sum()-fastdata_plaus['Ux'].isna().sum()))
+    elif calibration_coefficients is None:
+        spike_condition |= df_hat_MAD['LI_H2Om'] >= 6 / 0.6745
+        # Set spikes to NaN
+        df_p.loc[spike_condition, ['Ux', 'Uy', 'Uz', 'Ts', 'LI_H2Om']] = np.nan
+        print('Spikes removed from Ux,Uy,Uz,Ts:' + str(df_p['Ux'].isna().sum()-fastdata_plaus['Ux'].isna().sum()), 'Spikes removed from LI_H2Om:' + str(df_p['LI_H2Om'].isna().sum()-fastdata_plaus['LI_H2Om'].isna().sum()))        
     else:
         spike_condition |= df_hat_MAD['LI_H2Om_corr'] >= 6 / 0.6745
         # Set spikes to NaN

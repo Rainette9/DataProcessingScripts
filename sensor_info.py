@@ -67,11 +67,11 @@ def get_sensor_info(sensor):
     elif sensor == 'U':
         folder_name = 'CR1000X_U'
         calibration_coefficients = {
-            'A': 5.49957E3,
-            'B': 4.00024E6,
-            'C': -1.11280E8,
-            'H2O_Zero': 0.8164,
-            'H20_Span': 1.0103
+            'A': 4.76480E3,
+            'B': 3.84869E6,
+            'C': 3.84869E6,
+            'H2O_Zero': 0.7311,
+            'H20_Span': 0.9883
         }
         heights = {
             'TH': 26, # m
