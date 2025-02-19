@@ -3,7 +3,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 
-def double_rotation(fastdata, blockdur='30min', periodwise=True, gapthresh='10min'):
+def double_rotation_MICHI(fastdata, blockdur='30min', periodwise=True, gapthresh='10min'):
     """
     Perform double rotation on the wind data in blocks.
     
@@ -85,7 +85,7 @@ def double_rotation(fastdata, blockdur='30min', periodwise=True, gapthresh='10mi
 
 
 
-def rotate_wind_vector(fastdata, blockdur='30min'):
+def double_rotation(fastdata, blockdur='30min'):
     """
     Transform wind to mean streamline coordinate system using double rotation in timesteps of 30 minutes.
 
@@ -106,10 +106,7 @@ def rotate_wind_vector(fastdata, blockdur='30min'):
     # Convert block duration to Timedelta
     blockdur = pd.Timedelta(blockdur)
     freq=(fastdata.index[1]-fastdata.index[0]).total_seconds()
-    print(freq)
-    print(blockdur)
     blockduridx = int(blockdur / pd.Timedelta(f'{freq}s'))
-    print(blockduridx)
     
     startidx = 0
     endidcs = []
@@ -118,27 +115,20 @@ def rotate_wind_vector(fastdata, blockdur='30min'):
     while startidx < len(fastdata_rot)- blockduridx:
         startidcs.append(startidx)
         endidcs.append(startidx + blockduridx -1)
-        # endidcs.append(min(startidx + blockduridx - 1, len(fastdata) - 1))
         startidx += blockduridx 
-        # print(startidcs[-1], endidcs[-1])
-        # print(fastdata_rot.index[startidcs[-1]], fastdata_rot.index[endidcs[-1]])
     endidcs[-1] = len(fastdata_rot) -1
-    print('passed')
     angles = pd.DataFrame(columns=['theta', 'phi'])
     for startidx, endidx in zip(startidcs, endidcs):
-        print(fastdata_rot.index[startidx])
-        print(fastdata_rot.index[endidx])
-        print(startidx, endidx)
+
         datatouse = fastdata_rot.iloc[startidx:endidx+1]
-        print(datatouse)
         u_unrot = datatouse['Ux'].values
         v_unrot = datatouse['Uy'].values
         w_unrot = datatouse['Uz'].values
         # Combine winds into matrix
         wind_unrot = np.c_[u_unrot, v_unrot, w_unrot]
 
-        # Mirror y-axes to get right-handed coordinate system (depends on the sonic)
-        wind_unrot[:, 1] = -wind_unrot[:, 1]
+        # # Mirror y-axes to get right-handed coordinate system (depends on the sonic)
+        # wind_unrot[:, 1] = -wind_unrot[:, 1]
 
         # First rotation to set mean(v) = 0
         theta = np.arctan2(np.nanmean(wind_unrot[:, 1]), np.nanmean(wind_unrot[:, 0]))
@@ -156,37 +146,92 @@ def rotate_wind_vector(fastdata, blockdur='30min'):
         w_rot = wind_rot[:, 2]
 
         # Overwrite the input data
-        print('len', len(u_rot))
-        print('len index', len(fastdata_rot.index[startidx:endidx +1]))
         fastdata_rot.loc[fastdata_rot.index[startidx:endidx +1], 'Ux'] = u_rot
         fastdata_rot.loc[fastdata_rot.index[startidx:endidx +1], 'Uy'] = v_rot
         fastdata_rot.loc[fastdata_rot.index[startidx:endidx +1], 'Uz'] = w_rot
-        print(fastdata_rot.index[startidx])
         angles.loc[fastdata_rot.index[startidx]] = [theta, phi]
     return fastdata_rot, angles
 
 
-def detect_nan_and_gap(data, gapthresh):
+def check_heat_flux(fastdata, blockdur, rho=1.225, plot=False):
     """
-    Detect NaN values and gaps in the data.
-    
-    Parameters:
-    data (pd.DataFrame): DataFrame containing the data.
-    gapthresh (pd.Timedelta): Threshold for detecting gaps.
-    
-    Returns:
-    pd.DataFrame: DataFrame with indices before and after gaps.
+    Calculate the heat flux for each block of wind data.
+
+    Parameters
+    ----------
+    fastdata: pd.DataFrame
+        DataFrame containing the wind data with columns 'Ux', 'Uy', 'Uz'.
+    blockdur: str
+        Duration of each block (e.g., '30min' for 30 minutes).
+
+
+    Returns
+    -------
+    pd.DataFrame
+        DataFrame with heat flux for each block.
     """
-    # Detect NaN values
-    nan_indices = data.index[data.isna().any(axis=1)]
+    rho=1.29 # kg/m^3
+    cp =1005
+    # Convert block duration to Timedelta
+    blockdur = pd.Timedelta(blockdur)
+    freq = (fastdata.index[1] - fastdata.index[0]).total_seconds()
+    blockduridx = int(blockdur / pd.Timedelta(f'{freq}s'))
+
+    startidx = 0
+    endidcs = []
+    startidcs = []
+
+    while startidx < len(fastdata)- blockduridx:
+        startidcs.append(startidx)
+        endidcs.append(startidx + blockduridx -1)
+        startidx += blockduridx 
+    endidcs[-1] = len(fastdata) -1
+    df_heatflux = pd.DataFrame(columns=['SHF', 'LHF'])
+    for startidx, endidx in zip(startidcs, endidcs):
+        datatouse = fastdata.iloc[startidx:endidx+1]
+        Ts = datatouse['Ts'].values
+        w = datatouse['Uz'].values
+        if datatouse.Uz.isna().sum()   > blockduridx*0.4:
+            print(f"Warning: NaNs in block {startidx} to {endidx} bigger than 40%")
+            SHF = np.nan
+            LHF = np.nan
+        else:       
+            # Calculate the 
+            Tsprime = Ts - np.nanmean(Ts)
+            wprime = w - np.nanmean(w)
+            wTsprime = np.nanmean(wprime * Tsprime)
+            if 'LI_H2Om_corr' in fastdata.columns:
+                q = datatouse['LI_H2Om_corr'].values
+            elif 'LI_H2Om' in fastdata.columns:
+                q = datatouse['LI_H2Om'].values
+            else:
+                q = np.nan
+
+            if not np.isnan(q).all():
+                qprime = (q - np.nanmean(q) )*(0.018/1000) #from mmol/kg to kg/m3
+                wqprime = np.nanmean(wprime * qprime)
+                LHF = rho * 2.834*10**6 * wqprime 
+            else:
+                LHF = np.nan
+
+        SHF= rho * cp * wTsprime
+        df_heatflux.loc[fastdata.index[startidx]] = SHF, LHF
+
+
+
+    if plot==True:
+        plt.figure(figsize=(10, 6))
+        plt.plot(df_heatflux['SHF'].resample('30min').mean(), label='Sensible Heat Flux')
+        plt.plot(df_heatflux['LHF'].resample('30min').mean(), label='Latent Heat Flux')
+        plt.xlabel('Time')
+        plt.ylabel(r'Heat Flux [$W/m^2$]')
+        plt.title('Heat Flux over time')
+        plt.legend()
+        plt.show()
     
-    # Detect gaps
-    time_diffs = data.index.to_series().diff().fillna(pd.Timedelta(seconds=0))
-    gap_indices = time_diffs[time_diffs > gapthresh].index
-    
-    # Combine NaN and gap indices
-    idx_before_gap = sorted(set(nan_indices).union(set(gap_indices)))
-    idx_after_gap = [data.index[data.index.get_loc(idx) + 1] for idx in idx_before_gap]
-    
-    return pd.DataFrame({'idx_before_gap': idx_before_gap, 'idx_after_gap': idx_after_gap})
+    return df_heatflux
+
+
+
+
 
