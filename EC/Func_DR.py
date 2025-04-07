@@ -155,7 +155,7 @@ def double_rotation(fastdata, blockdur='30min'):
 
 def check_heat_flux(fastdata, blockdur, rho=1.225, plot=False):
     """
-    Calculate the heat flux for each block of wind data.
+    Calculate and plot the heat flux for the averaging time window blockdur.
 
     Parameters
     ----------
@@ -168,7 +168,7 @@ def check_heat_flux(fastdata, blockdur, rho=1.225, plot=False):
     Returns
     -------
     pd.DataFrame
-        DataFrame with heat flux for each block.
+        DataFrame with senisble and latent (if H2O present) heat flux for each block.
     """
     rho=1.29 # kg/m^3
     cp =1005
