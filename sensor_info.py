@@ -17,13 +17,12 @@ def get_sensor_info(sensor):
     })
 
     if sensor == 'SFC':
-        folder_name = 'CR6_SFC_1'
         calibration_coefficients = {
-            'A': 5.49957E3,
-            'B': 4.00024E6,
-            'C': -1.11280E8,
-            'H2O_Zero': 0.8164,
-            'H20_Span': 1.0103
+            'A': 4.93260E83,
+            'B': 3.44526E3,
+            'C': -1.17398E3,
+            'H2O_Zero': 0.8071,
+            'H20_Span': 1.0019
         }
         heights = {
             'WIND2': 3, # m
@@ -33,9 +32,10 @@ def get_sensor_info(sensor):
             'TH': 2, # m
             'RAD': 2, # m
             'FC': 0, # m 
+            'SPC': 0.2 # m
+        
         }
-    elif sensor == 'B':
-        folder_name = 'CR6_B'
+    elif sensor == 'BOTTOM':
         calibration_coefficients = None
         heights = {
             'TH': 5, # m
@@ -44,8 +44,7 @@ def get_sensor_info(sensor):
             'Tsurf': 1.7, # m
             'SD': 2 # m
         }
-    elif sensor == 'L':
-        folder_name = 'CR_3000_L_2'
+    elif sensor == 'LOWER':
         calibration_coefficients = {
             'A': 5.49957E3,
             'B': 4.00024E6,
@@ -64,8 +63,7 @@ def get_sensor_info(sensor):
             'FC1': 5, # m
             'FC2': 14 # m
         }
-    elif sensor == 'U':
-        folder_name = 'CR1000X_U'
+    elif sensor == 'UPPER':
         calibration_coefficients = {
             'A': 4.76480E3,
             'B': 3.84869E6,
@@ -82,7 +80,7 @@ def get_sensor_info(sensor):
             'FC1': 5, # m
             'FC2': 14 # m
         }
-    return plim, calibration_coefficients, heights, folder_name
+    return plim, calibration_coefficients, heights
 
 # Example usage:
 # plim, calibration_coefficients = get_sensor_info('SFC')
