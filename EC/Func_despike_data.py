@@ -3,7 +3,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import os
 from scipy.ndimage import median_filter
-
+from scipy.optimize import root_scalar
 
 
 def apply_plausibility_limits(fastdata, plim):
@@ -41,9 +41,24 @@ def apply_plausibility_limits(fastdata, plim):
             print(f"Plausibility limits: Discarding {in_out.sum()} 'H2O' records.")
             fastdata_plaus.loc[in_out, 'LI_H2Om'] = np.nan
 
+    #### Check sensor diagnostics
+    in_out = fastdata_plaus['diag_csat'].abs() > 4960 #Armin uses 4096
+    if in_out.any():
+        print(f"diag_csat: Discarding {in_out.sum()} 'CSAT' records.")
+        fastdata_plaus.loc[in_out, 'Ux'] = np.nan
+        fastdata_plaus.loc[in_out, 'Uy'] = np.nan
+        fastdata_plaus.loc[in_out, 'Uz'] = np.nan
+        fastdata_plaus.loc[in_out, 'Ts'] = np.nan
+    in_out = fastdata_plaus['LI_diag'].abs() <= 240
+    if in_out.any():
+        print(f"LI_diag: Discarding {in_out.sum()} 'LI' records.")
+        fastdata_plaus.loc[in_out, 'LI_H2Om'] = np.nan
+        fastdata_plaus.loc[in_out, 'LI_Pres'] = np.nan
+
     # # Check 'LI_Pres' values if 'LI_Pres' column exists
     # if 'LI_Pres' in fastdata_plaus.columns:
-    #     in_out = (fastdata_plaus['LI_Pres'] < plim['pres.low'].iloc[0]) | (fastdata_plaus['LI_Pres'] > plim['pres.up'].iloc[0])
+    #     # in_out = (fastdata_plaus['LI_Pres'] < plim['pres.low'].iloc[0]) | (fastdata_plaus['LI_Pres'] > plim['pres.up'].iloc[0])
+    #     in_out = (fastdata_plaus['LI_Pres'] < 0)
     #     if in_out.any():
     #         print(f"Plausibility limits: Discarding {in_out.sum()} 'pressure' records.")
     #         fastdata_plaus.loc[in_out, 'LI_Pres'] = np.nan
@@ -73,7 +88,6 @@ def h2o_calibration(calibration_coefficients, fastdata, slowdata):
     fastdata_plaus=fastdata.copy()
     #Calibration coefficients and polynomial
     df_LF=pd.DataFrame()
-    df_LF=pd.DataFrame()
     if 'TA' not in slowdata.columns:
         height=str(fastdata_plaus.attrs['heights']['Ts'][0])
 
@@ -101,7 +115,29 @@ def h2o_calibration(calibration_coefficients, fastdata, slowdata):
         # global counter
         # counter = counter+1; print(np.round(counter/total_items*100,3), end="\r")
         p = np.poly1d([calibration_coefficients['C'],calibration_coefficients['B'],calibration_coefficients['A'], y])
-        return p.roots[1].real
+        # print(p.roots[0].real)
+        return p.roots[0].real
+    # def polyapp(y, calibration_coefficients, bounds=(0, 0.002)):
+    #     if np.isnan(y):
+    #         print("NaN value encountered in polyapp")
+    #         return np.nan
+        
+    #     # Define the cubic polynomial function
+    #     def f(a):
+    #         return calibration_coefficients['A'] * a + \
+    #             calibration_coefficients['B'] * a**2 + \
+    #             calibration_coefficients['C'] * a**3 + y  # Note: y is already negated
+
+    #     try:
+    #         sol = root_scalar(f, bracket=bounds, method='brentq')
+    #         if sol.converged:
+    #             print(f"Root found for y={y} with bounds {bounds}: {sol.root}")
+    #             return sol.root
+    #         else:
+    #             print(f"Root finding failed for y={y} with bounds {bounds}")
+    #             return np.nan  # fallback if solver fails
+    #     except ValueError:
+    #         return np.nan  # happens when no root in bracket
 
     total_items = df_vap.shape[0]
     counter = 0
@@ -135,7 +171,7 @@ def h2o_calibration(calibration_coefficients, fastdata, slowdata):
     df_p['LI_H2Om_corr'] = df_p['LI_y_norm_fast'] * df_p['LI_Pres']/1000 #mmol/m^-3
     df_p['LI_H2Om_corr'] = df_p['LI_H2Om_corr'].round(1)
 
-    df_p.drop(columns=['LI_a_raw','RH_a_raw','LI_Pres', 'LI_y_fast', 'LI_a_fast', 'LI_a_raw_fast', 'LI_a_corr_fast', 'LI_a_norm_fast', 'LI_y_norm_fast'], inplace=True)
+    df_p.drop(columns=['LI_a_raw','RH_a_raw', 'LI_y_fast', 'LI_a_fast', 'LI_a_raw_fast', 'LI_a_corr_fast', 'LI_a_norm_fast', 'LI_y_norm_fast'], inplace=True)
     return df_p, df_LF
 
 def plot_despiking_results(fastdata, fastdata_plaus, df_p, sensor, slowdata=None):
@@ -161,43 +197,45 @@ def plot_despiking_results(fastdata, fastdata_plaus, df_p, sensor, slowdata=None
     ax[0].plot(fastdata_plaus['Ux'], label='Ux_plaus', color='blue')
     ax[0].plot(df_p['Ux'], label='Ux_despiked', color='red')
     ax[0].set_ylabel('Ux (m/s)')
-    ax[0].legend()
+    ax[0].legend(loc='upper left')
     ax[0].set_ylim(-30, 30)
     ax[1].plot(fastdata['Uy'], label='Uy', color='grey')
     ax[1].plot(fastdata_plaus['Uy'], label='Uy_plaus', color='blue')
     ax[1].plot(df_p['Uy'], label='Uy_despiked', color='red')
-    ax[1].legend()
+    ax[1].legend(loc='upper left')
     ax[1].set_ylim(-30, 30)
     ax[1].set_ylabel('Uy (m/s)')
     ax[2].plot(fastdata['Uz'], label='Uz', color='grey')
     ax[2].plot(fastdata_plaus['Uz'], label='Uz_plaus', color='blue')
     ax[2].plot(df_p['Uz'], label='Uz_despiked', color='red')
-    ax[2].legend()
+    ax[2].legend(loc='upper left')
     ax[2].set_ylim(-10, 10)
     ax[2].set_ylabel('Uz (m/s)')
     ax[3].plot(fastdata['Ts'], label='Ts', color='grey')
     ax[3].plot(fastdata_plaus['Ts'], label='Ts_plaus', color='blue')
     ax[3].plot(df_p['Ts'], label='Ts_despiked', color='red')
-    ax[3].legend()
+    ax[3].legend(loc='upper left')
     ax[3].set_ylabel('Ts (C)')
     ax[3].set_ylim(-30, 10)
-    fig.suptitle('Fast data despiked for sensor ' + sensor)
-    plt.savefig(f'/home/engbers/Documents/PhD/Data/EC_despiked/Figures/EC_despiked_{sensor}.png', bbox_inches='tight')
-    plt.show()
+    fig.suptitle('Fast data despiked for sensor ' + sensor + fastdata.index[0].strftime('%Y%m%d'), y=0.93)
+    plt.savefig(f'/home/engbers/Documents/PhD/EC_data_convert/SFC/plots_despiking/EC_despiked_{sensor}_{fastdata.index[0].strftime('%Y%m%d')}.png', bbox_inches='tight')
+    plt.close()
 
 
 
 
 
 
-def despike_fast_MAD(fastdata, slowdata, plim, sensor, calibration_coefficients=None, plot_despike=False, save_despike=False):
+def despike_fast_MAD(fastdata, slowdata, plim, sensor, calibration_coefficients=None, plot_despike=False):
     """
-    This function .. based on "modified_mad_filter" (Sigmund et al., 2022)
+    This function  based on "modified_mad_filter" (Sigmund et al., 2022)
     """
-    
+    ### Applying plausibility limits 
     freq=fastdata.index[1]-fastdata.index[0]
     fastdata_plaus=apply_plausibility_limits(fastdata, plim)
     print('Plausibility limits applied')
+
+    ### H2O corection
     if calibration_coefficients is not None:
         print('Applying H2O calibration')
         fastdata_plaus_calib, df_LF= h2o_calibration(calibration_coefficients, fastdata_plaus, slowdata)
@@ -208,7 +246,6 @@ def despike_fast_MAD(fastdata, slowdata, plim, sensor, calibration_coefficients=
         df_p=fastdata_plaus.copy()
 
     ###Spike correction
-
     print('Processing large dataset (%)')
     window = int(5 * 60 / freq.total_seconds()) # 5 minutes
     df_di = np.abs(df_p.rolling(window=window, center=True).median()-df_p)
@@ -234,14 +271,41 @@ def despike_fast_MAD(fastdata, slowdata, plim, sensor, calibration_coefficients=
     else:
         spike_condition |= df_hat_MAD['LI_H2Om_corr'] >= 6 / 0.6745
         # Set spikes to NaN
-        df_p.loc[spike_condition, ['Ux', 'Uy', 'Uz', 'Ts', 'LI_H2Om']] = np.nan
-        print('Spikes removed from Ux,Uy,Uz,Ts:' + str(df_p['Ux'].isna().sum()-fastdata_plaus['Ux'].isna().sum()), 'Spikes removed from LI_H2Om:' + str(df_p['LI_H2Om'].isna().sum()-fastdata_plaus['LI_H2Om'].isna().sum()))
+        df_p.loc[spike_condition, ['Ux', 'Uy', 'Uz', 'Ts', 'LI_H2Om_corr']] = np.nan
+        print('Spikes removed from Ux,Uy,Uz,Ts:' + str(df_p['Ux'].isna().sum()-fastdata_plaus['Ux'].isna().sum()), 'Spikes removed from LI_H2Om:' + str(df_p['LI_H2Om_corr'].isna().sum()-fastdata_plaus['LI_H2Om'].isna().sum()))
+    
+    ### Interpolate if gaps < 1s
+    nan_mask = df_p['Ux'].isna()
+    # Group consecutive NaNs and calculate their lengths
+    nan_groups = nan_mask.astype(int).groupby((~nan_mask).cumsum(), group_keys=False).cumsum()
+    last_values = nan_groups.groupby((~nan_mask).cumsum()).transform('last')
+    nan_groups = np.where((last_values > 10) & (last_values != 0), last_values, nan_groups)
+    # Identify gaps with fewer than 10 consecutive NaNs
+    small_nan_gaps = nan_groups <= 10
+    # Interpolate only for small NaN gaps
+    df_p['Ux'] = df_p['Ux'].where(~nan_mask | ~small_nan_gaps, df_p['Ux'].interpolate(method='linear', limit_direction='both'))
+    df_p['Uy'] = df_p['Uy'].where(~nan_mask | ~small_nan_gaps, df_p['Uy'].interpolate(method='linear', limit_direction='both'))
+    df_p['Uz'] = df_p['Uz'].where(~nan_mask | ~small_nan_gaps, df_p['Uz'].interpolate(method='linear', limit_direction='both'))
+    df_p['Ts'] = df_p['Ts'].where(~nan_mask | ~small_nan_gaps, df_p['Ts'].interpolate(method='linear', limit_direction='both'))
+    # print('Interpolated Ux,Uy,Uz,Ts:' + str(df_p['Ux'].isna().sum()-fastdata_plaus['Ux'].isna().sum()))
+    if 'LI_H2Om_corr' in df_p.columns:
+        # Identify where the data is NaN
+        nan_mask = df_p['LI_H2Om_corr'].isna()
+        # Group consecutive NaNs and calculate their lengths
+        nan_groups = nan_mask.astype(int).groupby((~nan_mask).cumsum(), group_keys=False).cumsum()
+        last_values = nan_groups.groupby((~nan_mask).cumsum()).transform('last')
+        nan_groups = np.where((last_values > 10) & (last_values != 0), last_values, nan_groups)
+        # Identify gaps with fewer than 10 consecutive NaNs
+        small_nan_gaps = nan_groups <= 10
+        df_p['LI_H2Om_corr'] = df_p['LI_H2Om_corr'].where(~nan_mask | ~small_nan_gaps, df_p['LI_H2Om_corr'].interpolate(method='linear', limit_direction='both'))
+        # print('Interpolated LI_H2Om_corr:' + str(df_p['LI_H2Om_corr'].isna().sum()-fastdata_plaus['LI_H2Om'].isna().sum()))
+
+    ### Plotting
     if plot_despike==True and calibration_coefficients is not None:
         plot_despiking_results(fastdata, fastdata_plaus, df_p, sensor, df_LF)
     if plot_despike==True and calibration_coefficients is None:
         plot_despiking_results(fastdata, fastdata_plaus, df_p, sensor)
-    if save_despike==True:
-        df_p.to_csv('despiked_data.csv')
+
     return df_p
 
 
@@ -334,3 +398,6 @@ def despiking(datain, windowwidth=3000, maxsteps=10, breakcrit=1.05):
             break
 
     return datain
+
+
+# def clean_slowdata(slowdata):

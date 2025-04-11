@@ -2,6 +2,7 @@ import numpy as np
 import pandas as pd
 from tqdm import tqdm
 from datetime import timedelta
+import matplotlib.pyplot as plt
 
 
 def detect_gaps(data, threshold):
@@ -39,14 +40,14 @@ def mrd(data_a, data_b, M, Mx):
         
         for i in range(nw):
             k = int(round((i) * l))
-            wmeans_a[i] = np.mean(data_a2[k:k+l])
-            wmeans_b[i] = np.mean(data_b2[k:k+l])
+            wmeans_a[i] = np.nanmean(data_a2[k:k+l]) #changed mean to nanmean
+            wmeans_b[i] = np.nanmean(data_b2[k:k+l]) #changed mean to nanmean
             data_a2[k:k+l] -= wmeans_a[i]
             data_b2[k:k+l] -= wmeans_b[i]
         
         if nw > 1:
-            D[ms] = np.mean(wmeans_a * wmeans_b)
-            Dstd[ms] = np.std(wmeans_a * wmeans_b, ddof=1)
+            D[ms] = np.nanmean(wmeans_a * wmeans_b) #changed mean to nanmean
+            Dstd[ms] = np.nanstd(wmeans_a * wmeans_b, ddof=1)  #changed mean to nanmean
     
     return D, Dstd
 

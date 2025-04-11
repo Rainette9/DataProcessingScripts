@@ -6,7 +6,7 @@ import re
 
 
 
-def read_data(folder_path, fastorslow, sensor, start=None, end=None, plot_data=False):
+def read_data(folder_path, fastorslow, sensor, start=None, end=None, plot_data=False, file_numbers=None):
     """
     Function to read .da data files from a folder and concatenate them into a single DataFrame. 
     Columns should be in order of 'TIMESTAMP', 'RECORD', 'Ux', 'Uy', 'Uz', 'Ts', 'diag_csat', 'LI_H2Om', 'LI_Pres', 'LI_diag' for fast data
@@ -27,49 +27,51 @@ def read_data(folder_path, fastorslow, sensor, start=None, end=None, plot_data=F
     # Iterate over all files in the folder
     for root, dirs, files in os.walk(folder_path):
         if sensor in root:
-            for file_name in files:            
-                if file_count >= 1000:  # Stop after processing 100 files
-                    break
-                # Check if the file name contains the sensor name and ends with .dat
-                if any(n in file_name for n in name) and file_name.endswith('.dat'):
-                    print(file_name)
-                    file_path = os.path.join(root, file_name)
-                    # Read the data from the file
-                    if fastorslow == 'slow':
-                        data = pd.read_csv(file_path, delimiter=',', header=1, low_memory=False)
-                        data = data.drop([0, 1])
-                        #open and append the wind file
-                        if sensor=='SFC':
-                            file_path = os.path.join(root, file_name)
-                            match = re.search(r'_(\d+)\.dat$', file_name)
-                            if match:
-                                number = match.group(1)  # Extract the number as a string
+            # Sort files to ensure they are read in order
+            files.sort()
+            for file_name in files:
+                # Check if file_numbers is defined and filter files accordingly
+                if file_numbers is None or any(nums in file_name for nums in file_numbers):
+                    # Check if the file name contains the sensor name and ends with .dat
+                    if any(n in file_name for n in name) and file_name.endswith('.dat'):
+                        # print(file_name)
+                        file_path = os.path.join(root, file_name)
+                        # Read the data from the file
+                        if fastorslow == 'slow':
+                            data = pd.read_csv(file_path, delimiter=',', header=1, low_memory=False)
+                            data = data.drop([0, 1])
+                            #open and append the wind file
+                            if sensor=='SFC':
+                                file_path = os.path.join(root, file_name)
+                                match = re.search(r'_(\d+)\.dat$', file_name)
+                                if match:
+                                    number = match.group(1)  # Extract the number as a string
 
-                                # Search for a file with 'wind' and the same number in the name
-                                for wind_file in files:
-                                    if f'wind_{number}' in wind_file and wind_file.endswith('.dat'):
-                                        wind_file_path = os.path.join(root, wind_file)
-                                        # Open and process the wind file
-                                        wind_data = pd.read_csv(wind_file_path, delimiter=',', header=1, low_memory=False)
-                                        wind_data = wind_data.drop([0, 1])
-                                        wind_data['TIMESTAMP'] = pd.to_datetime(wind_data['TIMESTAMP'], format='mixed')
-                                        data = data.join(wind_data, how='left', rsuffix='_wind')
+                                    # Search for a file with 'wind' and the same number in the name
+                                    for wind_file in files:
+                                        if f'wind_{number}' in wind_file and wind_file.endswith('.dat'):
+                                            wind_file_path = os.path.join(root, wind_file)
+                                            # Open and process the wind file
+                                            wind_data = pd.read_csv(wind_file_path, delimiter=',', header=1, low_memory=False)
+                                            wind_data = wind_data.drop([0, 1])
+                                            wind_data['TIMESTAMP'] = pd.to_datetime(wind_data['TIMESTAMP'], format='mixed')
+                                            data = data.join(wind_data, how='left', rsuffix='_wind')
 
-                            units_wind = pd.read_csv(wind_file_path, delimiter=',', header=1, nrows=1).iloc[0]
-                                        
-                    if fastorslow == 'fast':
-                        data = pd.read_csv(file_path, delimiter=',', header=1, low_memory=False)
-                        data = data.drop([0, 1])
-                    file_count += 1  # Increment the counter
-                    # Read the units from the second row
-                    units = pd.read_csv(file_path, delimiter=',', header=1, nrows=1).iloc[0]
-                    # Drop the second and third rows with units and empty strings
-                    data['TIMESTAMP'] = pd.to_datetime(data['TIMESTAMP'], format='mixed')
-                    data.set_index('TIMESTAMP', inplace=True)
-                     # Convert all columns to numeric, coercing errors to NaN
-                    data = data.apply(pd.to_numeric, errors='coerce')
-                    # Append the DataFrame to the list
-                    data_frames.append(data)
+                                units_wind = pd.read_csv(wind_file_path, delimiter=',', header=1, nrows=1).iloc[0]
+                                            
+                        if fastorslow == 'fast':
+                            data = pd.read_csv(file_path, delimiter=',', header=1, low_memory=False)
+                            data = data.drop([0, 1])
+                        file_count += 1  # Increment the counter
+                        # Read the units from the second row
+                        units = pd.read_csv(file_path, delimiter=',', header=1, nrows=1).iloc[0]
+                        # Drop the second and third rows with units and empty strings
+                        data['TIMESTAMP'] = pd.to_datetime(data['TIMESTAMP'], format='mixed')
+                        data.set_index('TIMESTAMP', inplace=True)
+                        # Convert all columns to numeric, coercing errors to NaN
+                        data = data.apply(pd.to_numeric, errors='coerce')
+                        # Append the DataFrame to the list
+                        data_frames.append(data)
                 
     
     # Concatenate all DataFrames in the list
@@ -86,7 +88,7 @@ def read_data(folder_path, fastorslow, sensor, start=None, end=None, plot_data=F
         data=rename_columns(combined_data)
     # Store units in a separate attribute
     combined_data.attrs['units'] = units.to_dict()
-    if units_wind is not None:
+    if sensor=='SFC' and fastorslow == 'slow':
         combined_data.attrs['units_wind'] = units_wind.to_dict()
 
 
@@ -203,53 +205,71 @@ def plot_slow_data(slowdata, sensor):
         
     return fig, ax
 
+def vapor_pressure_ice_MK2005(T):
+    T_k = T + 273.15
+    ln_esi = (-9.09718 * ((273.16 / T_k) - 1)
+              - 3.56654 * np.log10(273.16 / T_k)
+              + 0.876793 * (1 - (T_k / 273.16))
+              + np.log10(6.1071))
+    return 10**ln_esi * 100  # Pa
 
-def plot_SFC_slowdata(slowdata, sensor, start_time, end_time):
+def vapor_pressure_liquid_MK2005(T):
+    T_k = T + 273.15
+    return np.exp(54.842763 - 6763.22 / T_k - 4.210 * np.log(T_k)
+                  + 0.000367 * T_k
+                  + np.tanh(0.0415 * (T_k - 218.8)) *
+                  (53.878 - 1331.22 / T_k - 9.44523 * np.log(T_k)
+                   + 0.014025 * T_k))  # Pa
 
-    # Plot TA, TS, RH, WD, WS, SWdown, SWup, LWdown, LWup 
-    fig, ax= plt.subplots(6,1, figsize=(15,10), sharex=True)
+def convert_RH_liquid_to_ice(RH_liquid, T):
+    e_s_liquid = vapor_pressure_liquid_MK2005(T)
+    e_s_ice = vapor_pressure_ice_MK2005(T)
+    RH_ice = RH_liquid * (e_s_liquid / e_s_ice)
+    return RH_ice
 
-    ax[0].plot(slowdata['TA'], label='TA')
+def plot_SFC_slowdata(slowdata, sensor, start, end):
+
+    fig, ax= plt.subplots(7,1, figsize=(13,14), sharex=True)
+
+    ax[0].plot(slowdata['TA'][start:end], label='TA', color='deepskyblue')
     ax[0].set_ylabel('Temperature [oC]')
+    # ax[0].set_ylim(-45, 5)
+    ax[0].plot(slowdata['SFTempK'][start:end]-273.15, label='TS', color='gold', alpha=0.8)
     ax[0].legend()
-    ax[0].set_ylim(-50, 10)
-    ax[0].plot(slowdata['SFTempK']-273.15, label='TS', linestyle='--')
 
-    ax[1].plot(slowdata['RH'], label='RH')
-    ax[1].set_ylabel('Relative Humidity')
+
+    ax[1].plot(convert_RH_liquid_to_ice(slowdata['RH'], slowdata['TA'])[start:end], label='RH', color='deepskyblue')
+    ax[1].set_ylabel('RH wrt ice [%]')
     ax[1].legend()
     ax[1].set_ylim(0, 100)
 
-    ax[2].plot(slowdata['WD1'], label='WD1')
-    ax[2].plot(slowdata['WD2'], label='WD2')
+    ax[2].scatter(slowdata.loc[start:end].index, slowdata['WD1'][start:end], label='WD1', s=5, color='deepskyblue')
+    ax[2].scatter(slowdata.loc[start:end].index, slowdata['WD2'][start:end], label='WD2', s=5, color='limegreen')
     ax[2].set_ylabel('Wind Direction')
     ax[2].legend()
     ax[2].set_ylim(0, 360)
 
-    ax[3].plot(slowdata['WS1_Avg'], label='WS1_Avg')
-    ax[3].plot(slowdata['WS2_Avg'], label='WS2_Avg')
+    ax[3].plot(slowdata['WS1_Avg'][start:end], label='WS1_Avg', color='deepskyblue')
+    ax[3].plot(slowdata['WS2_Avg'][start:end], label='WS2_Avg', color='limegreen')
     ax[3].set_ylabel('Wind Speed[ms-1]')
     ax[3].legend()
-    ax[3].set_ylim(-10, 40)
+    # ax[3].set_ylim(-1, 30)
 
-    ax[4].plot(slowdata[column_name], label=column_name)
-    # ax[4].set_ylabel('Shortwave Radiation')
+    ax[4].plot(-(slowdata['SWdown1']-slowdata['SWup1'])[start:end], label='SW_net1', color='gold')
+    ax[4].plot(-(slowdata['LWdown1']-slowdata['LWup1'])[start:end], label='LW_net1', color='limegreen')
+    ax[4].set_ylabel('Net Radiation [Wm-2]')
     ax[4].legend()
-    ax[4].plot(slowdata[column_name], label=column_name)
-    ax[4].set_ylabel('Shortwave Radiation')
-    ax[4].legend()
-    ax[4].set_ylim(0,1200)
-    ax[5].plot(slowdata[column_name], label=column_name)
-    # ax[5].set_ylabel('Longwave Radiation')
+    # ax[4].set_ylim(-400, 400)
+    ax[5].plot(-(slowdata['SWdown2']-slowdata['SWup2'])[start:end], label='SW_net2', color='gold')
+    ax[5].plot(-(slowdata['LWdown2']-slowdata['LWup2'])[start:end], label='LW_net2', color='limegreen')
+    ax[5].set_ylabel('Net Radiation [Wm-2]')
     ax[5].legend()
-    ax[5].plot(slowdata[column_name], label=column_name)
-    ax[5].set_ylabel('Longwave Radiation')
-    ax[5].legend()
-    ax[5].set_ylim(50,400)
 
-
-    fig.suptitle(f'{sensor} slowdata', y=0.95)
-    plt.savefig(f'./plots/{sensor}_slowdata.png')
+    ax[6].plot(slowdata['PF_FC4'][start:end], label='PF_FC4', color='deepskyblue')
+    ax[6].set_ylabel('Flowcapt [g/m2/s]')
+    fig.suptitle(f'{sensor} slowdata {start} - {end}', y=0.92, fontsize=16)
+    # plt.tight_layout()
+    plt.savefig(f'./plots/{sensor}_{start}_slowdata.png', bbox_inches='tight')
         
     return fig, ax
 
@@ -257,22 +277,85 @@ def plot_SFC_slowdata(slowdata, sensor, start_time, end_time):
 def plot_fast_data(fastdata, sensor): 
     # fastdata_res = fastdata.resample('0.1s').mean()
     fig, ax= plt.subplots(4,1, figsize=(15,10))
-    for column_name in fastdata_res.columns:
+    for column_name in fastdata.columns:
         if 'Ux' in column_name:
-            ax[0].plot(fastdata_res[column_name], label=column_name)
+            ax[0].plot(fastdata[column_name], label=column_name)
             ax[0].set_ylabel('Wind Speed Ux')
         if 'Uy' in column_name:
-            ax[1].plot(fastdata_res[column_name], label=column_name)
+            ax[1].plot(fastdata[column_name], label=column_name)
             ax[1].set_ylabel('Wind Speed Uy')
         if 'Uz' in column_name:
-            ax[2].plot(fastdata_res[column_name], label=column_name)
+            ax[2].plot(fastdata[column_name], label=column_name)
             ax[2].set_ylabel('Wind Speed Uz')
         if 'Ts' in column_name:
-            ax[3].plot(fastdata_res[column_name], label=column_name)
+            ax[3].plot(fastdata[column_name], label=column_name)
             ax[3].set_ylabel('Temperature')
 
 
     fig.suptitle(f'{sensor} fastdata')
     plt.savefig(f'./plots/{sensor}_fastdata.png')
-        
+    # plt.close()
     return fig, ax
+
+def clean_slowdata(slowdata):
+    """
+    Function to clean slowdata by removing outliers and renaming columns.
+    """
+    slowdata_cleaned = slowdata[['WD1', 'WD2', 'TA', 'RH', 'HS_Cor', 'HS_Qty', 'SFTempK', 'SWdown1', 'SWdown2', 'SWup1', 'SWup2', 'LWdown1', 'LWdown2', 'LWup1', 'LWup2', 'SWdn', 'PF_FC4', 'WS_FC4', 'WS1_Avg', 'WS2_Avg', 'WS1_Max', 'WS2_Max', 'WS1_Std', 'WS2_Std']]
+
+    # Add corresponding units from slowdata to attrs
+    for column in slowdata_cleaned.columns:
+        if 'units' in slowdata.attrs and column in slowdata.attrs['units']:
+            slowdata_cleaned[column].attrs['units'] = slowdata.attrs['units'][column]
+
+    slowdata_cleaned.loc[:, 'WS_FC4'] = slowdata_cleaned['WS_FC4'] / 3.6
+    slowdata_cleaned['WS_FC4'].attrs['units'] = 'm/s'
+    for var in ['SWdown1', 'SWdown2', 'SWup1', 'SWup2']:
+        slowdata_cleaned.loc[:, var] = slowdata_cleaned[var].where(slowdata_cleaned[var] <= 1300, np.nan)
+        slowdata_cleaned.loc[:, var] = slowdata_cleaned[var].where(slowdata_cleaned[var] >= -20, np.nan)
+    for var in ['LWdown1', 'LWdown2', 'LWup1', 'LWup2']:
+        slowdata_cleaned.loc[:, var] = slowdata_cleaned[var].where(slowdata_cleaned[var] <= 400, np.nan)
+        slowdata_cleaned.loc[:, var] = slowdata_cleaned[var].where(slowdata_cleaned[var] >= 10, np.nan)
+    slowdata_cleaned.loc[:, 'SFTempK'] = slowdata_cleaned['SFTempK'].where(slowdata_cleaned['SFTempK'] <= 283, np.nan)
+    slowdata_cleaned.loc[:, 'SFTempK'] = slowdata_cleaned['SFTempK'].where(slowdata_cleaned['SFTempK'] >= 210, np.nan)
+    slowdata_cleaned.loc[:, 'TA'] = slowdata_cleaned['TA'].where(slowdata_cleaned['TA'] >= -60, np.nan)
+    slowdata_cleaned.loc[:, 'HS_Cor'] = slowdata_cleaned['HS_Cor'].where((slowdata_cleaned['HS_Qty'] >= 152) & (slowdata_cleaned['HS_Qty'] <= 210), np.nan)
+    
+    return slowdata_cleaned
+
+
+def save_despiked_data(fastdata, despiked_fastdata, output_folder, sensor):
+    """
+    Save the despiked fast data to .dat file per day
+    """
+    # Ensure output folder exists
+    os.makedirs(output_folder, exist_ok=True)
+
+    # Ensure the timestamp is a datetime object
+    if not pd.api.types.is_datetime64_any_dtype(despiked_fastdata.index):
+        despiked_fastdata.index = pd.to_datetime(despiked_fastdata.index)
+
+    # Rename and select the desired columns
+    save_fastdata = pd.DataFrame()
+    if 'LI_H2Om' in despiked_fastdata.columns:
+        save_fastdata[['Ux', 'Uy', 'Uz', 'Ts', 'LI_H2Om', 'LI_Pres']] = despiked_fastdata[
+            ['Ux', 'Uy', 'Uz', 'Ts', 'LI_H2Om_corr', 'LI_Pres']]
+    else:
+        save_fastdata[['Ux', 'Uy', 'Uz', 'Ts']] = despiked_fastdata[
+            ['Ux', 'Uy', 'Uz', 'Ts']]
+
+    # Group by day
+    for date, group in save_fastdata.groupby(save_fastdata.index.date):
+        if len(group) == 864000:  # Check if the data consists of a full day (100ms frequency, 864000 rows per day)
+            date_str = pd.to_datetime(date).strftime('%Y%m%d')
+            file_path = os.path.join(output_folder, f"{sensor}_Fastdata_proc_{date_str}.dat")
+
+            # Add units as the second row
+            units_row = {col: fastdata.attrs['units'].get(col, '') for col in group.columns}
+            group_with_units = pd.concat([pd.DataFrame([units_row], index=['units']), group])
+
+            # Save to .dat 
+            group_with_units.to_csv(file_path, sep='\t', index=True, header=True)
+
+            print(f"Data saved per day in {file_path}")
+

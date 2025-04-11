@@ -3,7 +3,7 @@ import pandas as pd
 
 
 
-def get_sensor_info(sensor):
+def get_sensor_info(sensor, year=None):
     plim = pd.DataFrame({
         'abs.u': [40],
         'abs.v': [40],
@@ -16,13 +16,32 @@ def get_sensor_info(sensor):
         'h2o.up': [680]
     })
 
-    if sensor == 'SFC':
+    if sensor == 'SFC' and year == 2024:
         calibration_coefficients = {
-            'A': 4.93260E83,
-            'B': 3.44526E3,
-            'C': -1.17398E3,
-            'H2O_Zero': 0.8071,
-            'H20_Span': 1.0019
+            'A': 4.82004E3,
+            'B': 3.79290E6,
+            'C': -1.15477E8,
+            'H2O_Zero': 0.7087,
+            'H20_Span': 0.9885
+        }
+        heights = {
+            'WIND2': 3, # m
+            'WIND1': 2, # m
+            'sonic': 1.9, # m
+            'SD': 1.7, # m
+            'TH': 2, # m
+            'RAD': 2, # m
+            'FC': 0, # m 
+            'SPC': 0.2 # m
+        
+        }
+    if sensor == 'SFC' and year == 2025:
+        calibration_coefficients = {
+            'A': 4.82004E3,
+            'B': 3.79290E6,
+            'C': -1.15477E8,
+            'H2O_Zero': 0.7087,
+            'H20_Span': 0.9885
         }
         heights = {
             'WIND2': 3, # m
