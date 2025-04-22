@@ -60,6 +60,8 @@ def read_data(folder_path, fastorslow, sensor, start=None, end=None, plot_data=F
                                 units_wind = pd.read_csv(wind_file_path, delimiter=',', header=1, nrows=1).iloc[0]
                                             
                         if fastorslow == 'fast':
+                            # if file_count >1:
+                            #     continue
                             data = pd.read_csv(file_path, delimiter=',', header=1, low_memory=False)
                             data = data.drop([0, 1])
                         file_count += 1  # Increment the counter
@@ -85,7 +87,10 @@ def read_data(folder_path, fastorslow, sensor, start=None, end=None, plot_data=F
         combined_data = combined_data.loc[start:]
         combined_data = combined_data.loc[:end]
     if fastorslow == 'fast':
-        data=rename_columns(combined_data)
+        combined_data=rename_columns(combined_data)  
+        unique_dates = pd.Series(combined_data.index.date).drop_duplicates().astype(str).tolist()
+        print("Unique dates in the DataFrame:", unique_dates)
+
     # Store units in a separate attribute
     combined_data.attrs['units'] = units.to_dict()
     if sensor=='SFC' and fastorslow == 'slow':
@@ -94,6 +99,7 @@ def read_data(folder_path, fastorslow, sensor, start=None, end=None, plot_data=F
 
     if plot_data:
         plot_slow_data(combined_data, sensor)
+    
     return combined_data
 
 
@@ -297,6 +303,30 @@ def plot_fast_data(fastdata, sensor):
     # plt.close()
     return fig, ax
 
+def despike_snow_height(data, column_name='HS_Cor'):
+    """
+    Function to despike snow height data using a one-day moving median filter.
+    
+    Parameters:
+    - data (pd.DataFrame): The input DataFrame containing snow height data.
+    - column_name (str): The name of the column containing snow height data.
+    
+    Returns:
+    - pd.Series: The despiked snow height data.
+    """
+    if column_name not in data.columns:
+        raise ValueError(f"Column '{column_name}' not found in the DataFrame.")
+    
+    # Apply a one-day moving median filter
+    window = '1D'  # 1-day window
+    median_filtered = data[column_name].rolling(window=window, center=True, min_periods=1).median()
+    # Remove values above 2m
+    median_filtered[median_filtered > 2] = np.nan
+    # Interpolate NaN values
+    median_filtered = median_filtered.interpolate(method='linear', limit_direction='both')
+    return median_filtered
+
+
 def clean_slowdata(slowdata):
     """
     Function to clean slowdata by removing outliers and renaming columns.
@@ -316,17 +346,26 @@ def clean_slowdata(slowdata):
     for var in ['LWdown1', 'LWdown2', 'LWup1', 'LWup2']:
         slowdata_cleaned.loc[:, var] = slowdata_cleaned[var].where(slowdata_cleaned[var] <= 400, np.nan)
         slowdata_cleaned.loc[:, var] = slowdata_cleaned[var].where(slowdata_cleaned[var] >= 10, np.nan)
+    # slowdata_cleaned = slowdata_cleaned.copy()
+    slowdata_cleaned.loc[:,'SWdown1'] = slowdata_cleaned['SWdown1'].where(slowdata_cleaned['SWdown1'] > slowdata_cleaned['SWup1'], np.nan)
+    slowdata_cleaned['SWdown1'] = slowdata_cleaned['SWdown1'].interpolate(method='linear', limit_direction='both')
+    slowdata_cleaned.loc[:,'SWdown2'] = slowdata_cleaned['SWdown2'].where(slowdata_cleaned['SWdown2'] > slowdata_cleaned['SWup2'], np.nan)
+    slowdata_cleaned['SWdown2'] = slowdata_cleaned['SWdown2'].interpolate(method='linear', limit_direction='both')
     slowdata_cleaned.loc[:, 'SFTempK'] = slowdata_cleaned['SFTempK'].where(slowdata_cleaned['SFTempK'] <= 283, np.nan)
     slowdata_cleaned.loc[:, 'SFTempK'] = slowdata_cleaned['SFTempK'].where(slowdata_cleaned['SFTempK'] >= 210, np.nan)
     slowdata_cleaned.loc[:, 'TA'] = slowdata_cleaned['TA'].where(slowdata_cleaned['TA'] >= -60, np.nan)
     slowdata_cleaned.loc[:, 'HS_Cor'] = slowdata_cleaned['HS_Cor'].where((slowdata_cleaned['HS_Qty'] >= 152) & (slowdata_cleaned['HS_Qty'] <= 210), np.nan)
-    
+    slowdata_cleaned.loc[:, 'HS_Cor'] = despike_snow_height(slowdata_cleaned, column_name='HS_Cor')
+    slowdata_cleaned.drop(columns=['HS_Qty'], inplace=True)
     return slowdata_cleaned
+
+
+
 
 
 def save_despiked_data(fastdata, despiked_fastdata, output_folder, sensor):
     """
-    Save the despiked fast data to .dat file per day
+    Save the despiked fast data to .dat file per hour
     """
     # Ensure output folder exists
     os.makedirs(output_folder, exist_ok=True)
@@ -343,11 +382,14 @@ def save_despiked_data(fastdata, despiked_fastdata, output_folder, sensor):
     else:
         save_fastdata[['Ux', 'Uy', 'Uz', 'Ts']] = despiked_fastdata[
             ['Ux', 'Uy', 'Uz', 'Ts']]
+    save_fastdata = save_fastdata.resample('100ms').asfreq()
 
-    # Group by day
-    for date, group in save_fastdata.groupby(save_fastdata.index.date):
-        if len(group) == 864000:  # Check if the data consists of a full day (100ms frequency, 864000 rows per day)
-            date_str = pd.to_datetime(date).strftime('%Y%m%d')
+    # Group by hour
+    for date, group in save_fastdata.groupby(pd.Grouper(freq='H')):
+        print(len(group))
+        print(f"Processing date: {date}")
+        if len(group) == 36000:  # Check if the data consists of a full hour (100ms frequency, 36000 rows per hour)
+            date_str = pd.to_datetime(date).strftime("%Y-%m-%d_%H%M")
             file_path = os.path.join(output_folder, f"{sensor}_Fastdata_proc_{date_str}.dat")
 
             # Add units as the second row
@@ -357,5 +399,7 @@ def save_despiked_data(fastdata, despiked_fastdata, output_folder, sensor):
             # Save to .dat 
             group_with_units.to_csv(file_path, sep='\t', index=True, header=True)
 
-            print(f"Data saved per day in {file_path}")
+            print(f"Data saved per hour in {file_path}")
+
+
 

@@ -34,26 +34,28 @@ def apply_plausibility_limits(fastdata, plim):
     if in_out.any():
         print(f"Plausibility limits: Discarding {in_out.sum()} 'Ts' records.")
         fastdata_plaus.loc[in_out, 'Ts'] = np.nan
+
     if 'LI_H2Om' in fastdata_plaus.columns:
         # Check 'LI_H2Om' values
         in_out = (fastdata_plaus['LI_H2Om'] < plim['h2o.low'].iloc[0]) | (fastdata_plaus['LI_H2Om'] > plim['h2o.up'].iloc[0])
         if in_out.any():
             print(f"Plausibility limits: Discarding {in_out.sum()} 'H2O' records.")
             fastdata_plaus.loc[in_out, 'LI_H2Om'] = np.nan
-
     #### Check sensor diagnostics
-    in_out = fastdata_plaus['diag_csat'].abs() > 4960 #Armin uses 4096
+        in_out = fastdata_plaus['LI_diag'].abs() <= 240
+        if in_out.any():
+            print(f"LI_diag: Discarding {in_out.sum()} 'LI' records.")
+            fastdata_plaus.loc[in_out, 'LI_H2Om'] = np.nan
+            fastdata_plaus.loc[in_out, 'LI_Pres'] = np.nan
+    in_out = fastdata_plaus['diag_csat'].abs() > 4096 #Sergi uses 4960
     if in_out.any():
         print(f"diag_csat: Discarding {in_out.sum()} 'CSAT' records.")
         fastdata_plaus.loc[in_out, 'Ux'] = np.nan
         fastdata_plaus.loc[in_out, 'Uy'] = np.nan
         fastdata_plaus.loc[in_out, 'Uz'] = np.nan
         fastdata_plaus.loc[in_out, 'Ts'] = np.nan
-    in_out = fastdata_plaus['LI_diag'].abs() <= 240
-    if in_out.any():
-        print(f"LI_diag: Discarding {in_out.sum()} 'LI' records.")
-        fastdata_plaus.loc[in_out, 'LI_H2Om'] = np.nan
-        fastdata_plaus.loc[in_out, 'LI_Pres'] = np.nan
+    
+
 
     # # Check 'LI_Pres' values if 'LI_Pres' column exists
     # if 'LI_Pres' in fastdata_plaus.columns:
@@ -269,6 +271,7 @@ def despike_fast_MAD(fastdata, slowdata, plim, sensor, calibration_coefficients=
         df_p.loc[spike_condition, ['Ux', 'Uy', 'Uz', 'Ts', 'LI_H2Om']] = np.nan
         print('Spikes removed from Ux,Uy,Uz,Ts:' + str(df_p['Ux'].isna().sum()-fastdata_plaus['Ux'].isna().sum()), 'Spikes removed from LI_H2Om:' + str(df_p['LI_H2Om'].isna().sum()-fastdata_plaus['LI_H2Om'].isna().sum()))        
     else:
+        print('Despiking LI_H2Om_corr')
         spike_condition |= df_hat_MAD['LI_H2Om_corr'] >= 6 / 0.6745
         # Set spikes to NaN
         df_p.loc[spike_condition, ['Ux', 'Uy', 'Uz', 'Ts', 'LI_H2Om_corr']] = np.nan
@@ -302,8 +305,10 @@ def despike_fast_MAD(fastdata, slowdata, plim, sensor, calibration_coefficients=
 
     ### Plotting
     if plot_despike==True and calibration_coefficients is not None:
+        print('Plotting despiking results')
         plot_despiking_results(fastdata, fastdata_plaus, df_p, sensor, df_LF)
     if plot_despike==True and calibration_coefficients is None:
+        print('Plotting despiking results')
         plot_despiking_results(fastdata, fastdata_plaus, df_p, sensor)
 
     return df_p

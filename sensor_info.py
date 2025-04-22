@@ -35,7 +35,8 @@ def get_sensor_info(sensor, year=None):
             'SPC': 0.2 # m
         
         }
-    if sensor == 'SFC' and year == 2025:
+        print("Using 2024 calibration coefficients")
+    elif sensor == 'SFC' and year == 2025:
         calibration_coefficients = {
             'A': 4.82004E3,
             'B': 3.79290E6,
@@ -54,6 +55,7 @@ def get_sensor_info(sensor, year=None):
             'SPC': 0.2 # m
         
         }
+        print("Using 2025 calibration coefficients")
     elif sensor == 'BOTTOM':
         calibration_coefficients = None
         heights = {
@@ -99,7 +101,14 @@ def get_sensor_info(sensor, year=None):
             'FC1': 5, # m
             'FC2': 14 # m
         }
+    else: 
+        calibration_coefficients = None
+        heights = None
+
+    print(calibration_coefficients)
     return plim, calibration_coefficients, heights
+
+
 
 # Example usage:
 # plim, calibration_coefficients = get_sensor_info('SFC')
