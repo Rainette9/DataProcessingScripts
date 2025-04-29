@@ -30,7 +30,8 @@ import pandas as pd
 # from scipy.constants import R
 
 # # Constants
-# R_dry_air = 287.05  # J/(kg·K)
+# R_dry_air = 287.05  # J/(kg·Kplim = get_sensor_info(sensor, 2024)
+)
 # R_w = 461.5  # J/(kg·K)
 
 # Functions (placeholders for external functions)

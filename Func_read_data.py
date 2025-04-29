@@ -31,10 +31,12 @@ def read_data(folder_path, fastorslow, sensor, start=None, end=None, plot_data=F
             files.sort()
             for file_name in files:
                 # Check if file_numbers is defined and filter files accordingly
-                if file_numbers is None or any(nums in file_name for nums in file_numbers):
+                
+                if file_numbers is None or any('0'+str(nums) in file_name for nums in file_numbers):
                     # Check if the file name contains the sensor name and ends with .dat
+
                     if any(n in file_name for n in name) and file_name.endswith('.dat'):
-                        # print(file_name)
+                        print(file_name)
                         file_path = os.path.join(root, file_name)
                         # Read the data from the file
                         if fastorslow == 'slow':
@@ -60,10 +62,14 @@ def read_data(folder_path, fastorslow, sensor, start=None, end=None, plot_data=F
                                 units_wind = pd.read_csv(wind_file_path, delimiter=',', header=1, nrows=1).iloc[0]
                                             
                         if fastorslow == 'fast':
-                            # if file_count >1:
+                            # if file_count <=1 or file_count >= 4:
+                            # # if file_count >= 1:
+                            #     file_count += 1  # Increment the counter
                             #     continue
+                            print(f'reading data {file_name}')
                             data = pd.read_csv(file_path, delimiter=',', header=1, low_memory=False)
                             data = data.drop([0, 1])
+                            
                         file_count += 1  # Increment the counter
                         # Read the units from the second row
                         units = pd.read_csv(file_path, delimiter=',', header=1, nrows=1).iloc[0]
