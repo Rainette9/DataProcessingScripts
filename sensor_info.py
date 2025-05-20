@@ -109,6 +109,37 @@ def get_sensor_info(sensor, year=None):
     return plim, calibration_coefficients, heights
 
 
+"""
+ Heights:
+Upper--------------
+DL:25.30
+Wind: 26.30
+Rad:25.60
+TH:25.82
+CSAT 25.00
+ Lower----------"
+DL:13.60
+Wind:18.15
+Rd: 17.30
+Th: 17.40
+CSAT: 16.50
+Wind: 9.90
+Fc2: 9.55
+Th:9.55
+ Bottom----------"
+Wind: 5.60
+Rad: 5.00
+Th: 5.20
+Csat3: 5.00
+SPC:4.55
+Fc:3.50
 
-# Example usage:
-# plim, calibration_coefficients = get_sensor_info('SFC')
+
+
+
+NEW
+
+4:15
+all you have to add 0.40
+4:15
+Margin of error +-10cm"""

@@ -2,17 +2,21 @@ import numpy as np
 import matplotlib.pyplot as plt
 import pandas as pd
 
-# def compute_roughness_length(fastdata)
-# """This function computes the roughness length from the wind speed profile and ustar."""
-#     # Compute the friction velocity
-#     cov_matrix = np.cov(u, v, bias=True)  # Set bias=True for population covariance
-#     cov_uv = cov_matrix[0, 1]  # Extract the covariance between u and v
+def compute_roughness_length(eddypro_data, eddypro_qc, z_wind):
+    """This function computes the roughness length from the wind speed profile and ustar."""
+    eddypro_data = eddypro_data.copy()
+    eddypro_data = eddypro_data.resample('10min').mean()
+    k = 0.4
+    u_mean = eddypro_data['wind_speed']
+    u_star = eddypro_data['u*']
+    z0 = z_wind * np.exp(-k * u_mean / u_star)
+    
+    # Set z0 to NaN when (z-d)/L is not neutral
+    z0[(eddypro_data['(z-d)/L'] < -0.1) | (eddypro_data['(z-d)/L'] > 0.1)] = np.nan
+    # z0[(eddypro_qc['flag(u)'])]
+    z0rolling = z0.rolling(window='28D', center=True, min_periods=1).median()
 
-#     print("Covariance (u, v):", cov_uv)   
-#     ustar = np.sqrt(np.mean(u_prime * w_prime))
-
-
-#     return z0
+    return z0, z0rolling
 
 
 
@@ -31,7 +35,7 @@ import pandas as pd
 
 # # Constants
 # R_dry_air = 287.05  # J/(kg·Kplim = get_sensor_info(sensor, 2024)
-)
+
 # R_w = 461.5  # J/(kg·K)
 
 # Functions (placeholders for external functions)

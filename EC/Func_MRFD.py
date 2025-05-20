@@ -125,7 +125,8 @@ def completemrd(data, col1, col2, M, shift, normed=False, plot=False):
                     else:
                         time_middle.append(time_middle[-1] + timeshift)
                     print('concatenating')
-                    
+                    # print(data_cont_mrd, np.full((M, 1), np.nan))
+                    # data_cont_mrd = np.concatenate((data_cont_mrd, np.full((M, 1), np.nan)), axis=1)
                     data_cont_mrd = np.concatenate((data_cont_mrd, np.full((M, 1), np.nan)), axis=1)
                     nrblocks += 1
                 

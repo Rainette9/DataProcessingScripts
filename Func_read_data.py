@@ -3,6 +3,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import os
 import re
+import glob
 
 
 
@@ -32,7 +33,7 @@ def read_data(folder_path, fastorslow, sensor, start=None, end=None, plot_data=F
             for file_name in files:
                 # Check if file_numbers is defined and filter files accordingly
                 
-                if file_numbers is None or any('0'+str(nums) in file_name for nums in file_numbers):
+                if file_numbers is None or any('0'+str(nums) in file_name or 'T'+str(nums) in file_name for nums in file_numbers):
                     # Check if the file name contains the sensor name and ends with .dat
 
                     if any(n in file_name for n in name) and file_name.endswith('.dat'):
@@ -337,7 +338,7 @@ def clean_slowdata(slowdata):
     """
     Function to clean slowdata by removing outliers and renaming columns.
     """
-    slowdata_cleaned = slowdata[['WD1', 'WD2', 'TA', 'RH', 'HS_Cor', 'HS_Qty', 'SFTempK', 'SWdown1', 'SWdown2', 'SWup1', 'SWup2', 'LWdown1', 'LWdown2', 'LWup1', 'LWup2', 'SWdn', 'PF_FC4', 'WS_FC4', 'WS1_Avg', 'WS2_Avg', 'WS1_Max', 'WS2_Max', 'WS1_Std', 'WS2_Std']]
+    slowdata_cleaned = slowdata[['WD1', 'WD2', 'TA', 'RH', 'HS_Cor', 'HS_Qty', 'SFTempK', 'SWdown1', 'SWdown2', 'SWup1', 'SWup2', 'LWdown1', 'LWdown2', 'LWup1', 'LWup2', 'SWdn', 'PF_FC4', 'WS_FC4', 'WS1_Avg', 'WS2_Avg', 'WS1_Max', 'WS2_Max', 'WS1_Std', 'WS2_Std']].copy()
 
     # Add corresponding units from slowdata to attrs
     for column in slowdata_cleaned.columns:
@@ -354,15 +355,15 @@ def clean_slowdata(slowdata):
         slowdata_cleaned.loc[:, var] = slowdata_cleaned[var].where(slowdata_cleaned[var] >= 10, np.nan)
     # slowdata_cleaned = slowdata_cleaned.copy()
     slowdata_cleaned.loc[:,'SWdown1'] = slowdata_cleaned['SWdown1'].where(slowdata_cleaned['SWdown1'] > slowdata_cleaned['SWup1'], np.nan)
-    slowdata_cleaned['SWdown1'] = slowdata_cleaned['SWdown1'].interpolate(method='linear', limit_direction='both')
+    slowdata_cleaned.loc[:, 'SWdown1'] = slowdata_cleaned['SWdown1'].interpolate(method='linear', limit_direction='both')
     slowdata_cleaned.loc[:,'SWdown2'] = slowdata_cleaned['SWdown2'].where(slowdata_cleaned['SWdown2'] > slowdata_cleaned['SWup2'], np.nan)
-    slowdata_cleaned['SWdown2'] = slowdata_cleaned['SWdown2'].interpolate(method='linear', limit_direction='both')
+    slowdata_cleaned.loc[:, 'SWdown2'] = slowdata_cleaned['SWdown2'].interpolate(method='linear', limit_direction='both')
     slowdata_cleaned.loc[:, 'SFTempK'] = slowdata_cleaned['SFTempK'].where(slowdata_cleaned['SFTempK'] <= 283, np.nan)
     slowdata_cleaned.loc[:, 'SFTempK'] = slowdata_cleaned['SFTempK'].where(slowdata_cleaned['SFTempK'] >= 210, np.nan)
     slowdata_cleaned.loc[:, 'TA'] = slowdata_cleaned['TA'].where(slowdata_cleaned['TA'] >= -60, np.nan)
     slowdata_cleaned.loc[:, 'HS_Cor'] = slowdata_cleaned['HS_Cor'].where((slowdata_cleaned['HS_Qty'] >= 152) & (slowdata_cleaned['HS_Qty'] <= 210), np.nan)
     slowdata_cleaned.loc[:, 'HS_Cor'] = despike_snow_height(slowdata_cleaned, column_name='HS_Cor')
-    slowdata_cleaned.drop(columns=['HS_Qty'], inplace=True)
+    slowdata_cleaned = slowdata_cleaned.drop(columns=['HS_Qty'])
     return slowdata_cleaned
 
 
@@ -409,3 +410,43 @@ def save_despiked_data(fastdata, despiked_fastdata, output_folder, sensor):
 
 
 
+def read_eddypro_data(folder, sensor, qc=False):
+    # Read eddypro data from subfolders of the sensor folder
+    sensor_folder = os.path.join(folder, sensor)
+    files = glob.glob(os.path.join(sensor_folder, '**', 'eddypro_*_full_output*.csv'), recursive=True)
+    if qc==True:
+        files = glob.glob(os.path.join(sensor_folder, '**', 'eddypro_*_qc_details*.csv'), recursive=True)
+    print("Files found:", files)
+    # Extract the first row as metadata and remove it from the dataframe
+    eddypro_data = pd.concat(
+        [pd.read_csv(file, header=1) for file in files],
+        ignore_index=True
+    )
+    eddypro_data.drop(columns=eddypro_data.columns[0], inplace=True)  # Drop the first column
+    # Ensure the 'date' and 'time' columns are strings before concatenation
+    eddypro_data['date'] = eddypro_data['date'].astype(str)
+    eddypro_data['time'] = eddypro_data['time'].astype(str)
+    
+    # Merge 'date' and 'time' columns and parse them into datetime format
+    eddypro_data['datetime'] = pd.to_datetime(eddypro_data['date'] + ' ' + eddypro_data['time'], format='%Y-%m-%d %H:%M', errors='coerce')
+    
+    # Drop rows with invalid datetime values
+    eddypro_data.dropna(subset=['datetime'], inplace=True)
+    
+    # Set the merged column as the index
+    eddypro_data.set_index('datetime', inplace=True)
+    dt=eddypro_data.index[1]-eddypro_data.index[0]
+    eddypro_data.index=eddypro_data.index-dt
+    eddypro_data.sort_index(inplace=True)
+    # metadata = eddypro_data.iloc[0]  # Extract the first row as metadata
+    # eddypro_data = eddypro_data.iloc[1:]  # Remove the first row from the dataframe
+    if qc==False:
+        eddypro_data.drop(columns=['date', 'time', 'DOY', 'daytime', 'file_records', 'used_records'], inplace=True)  # Drop unnecessary columns
+    # print("Metadata extracted:", metadata.to_dict())
+    eddypro_data= eddypro_data.apply(pd.to_numeric, errors='coerce')
+    if 'H' in eddypro_data.columns:
+        eddypro_data.loc[eddypro_data['qc_H']>=2, 'H'] = np.nan
+    if 'LE' in eddypro_data.columns:
+        eddypro_data.loc[eddypro_data['qc_LE']>=2, 'LE'] = np.nan
+    
+    return eddypro_data
