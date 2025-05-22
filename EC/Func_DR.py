@@ -64,10 +64,10 @@ def double_rotation(fastdata, blockdur='30min'):
         v_rot = wind_rot[:, 1]
         w_rot = wind_rot[:, 2]
 
-        # Overwrite the input data
-        fastdata_rot.loc[fastdata_rot.index[startidx:endidx +1], 'Ux'] = u_rot
-        fastdata_rot.loc[fastdata_rot.index[startidx:endidx +1], 'Uy'] = v_rot
-        fastdata_rot.loc[fastdata_rot.index[startidx:endidx +1], 'Uz'] = w_rot
+        # Overwrite the input data with rounded values
+        fastdata_rot.loc[fastdata_rot.index[startidx:endidx + 1], 'Ux'] = np.round(u_rot, 5)
+        fastdata_rot.loc[fastdata_rot.index[startidx:endidx + 1], 'Uy'] = np.round(v_rot, 5)
+        fastdata_rot.loc[fastdata_rot.index[startidx:endidx + 1], 'Uz'] = np.round(w_rot, 5)
         angles.loc[fastdata_rot.index[startidx]] = [theta, phi]
     return fastdata_rot, angles
 

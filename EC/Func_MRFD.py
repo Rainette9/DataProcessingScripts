@@ -53,6 +53,7 @@ def mrd(data_a, data_b, M, Mx):
 
 
 def completemrd(data, col1, col2, M, shift, normed=False, plot=False):
+    """"""
     print("MRD for DataFrame")
     timestep = data.index[1] - data.index[0]
     checktime = data.index[len(data) // 2 + 1] - data.index[len(data) // 2]

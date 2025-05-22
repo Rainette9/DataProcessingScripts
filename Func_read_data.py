@@ -25,14 +25,14 @@ def read_data(folder_path, fastorslow, sensor, start=None, end=None, plot_data=F
     # Initialize an empty list to store DataFrames
     data_frames = []
     file_count=0
-    # Iterate over all files in the folder
-    for root, dirs, files in os.walk(folder_path):
+    # Iterate over all files in the folder, walking through roots in order
+    for root, dirs, files in sorted(os.walk(folder_path)):
         if sensor in root:
+            print(f"Reading data from {root}")
             # Sort files to ensure they are read in order
             files.sort()
             for file_name in files:
                 # Check if file_numbers is defined and filter files accordingly
-                
                 if file_numbers is None or any('0'+str(nums) in file_name or 'T'+str(nums) in file_name for nums in file_numbers):
                     # Check if the file name contains the sensor name and ends with .dat
 
@@ -47,9 +47,11 @@ def read_data(folder_path, fastorslow, sensor, start=None, end=None, plot_data=F
                             if sensor=='SFC':
                                 file_path = os.path.join(root, file_name)
                                 match = re.search(r'_(\d+)\.dat$', file_name)
+                                match = re.search(r'_(\d+)', file_name)
                                 if match:
-                                    number = match.group(1)  # Extract the number as a string
-
+                                    number = match[1]  # Extract the number as a string
+                                    print(f"Extracted number: {number}")
+                                    units_wind = None
                                     # Search for a file with 'wind' and the same number in the name
                                     for wind_file in files:
                                         if f'wind_{number}' in wind_file and wind_file.endswith('.dat'):
@@ -60,7 +62,7 @@ def read_data(folder_path, fastorslow, sensor, start=None, end=None, plot_data=F
                                             wind_data['TIMESTAMP'] = pd.to_datetime(wind_data['TIMESTAMP'], format='mixed')
                                             data = data.join(wind_data, how='left', rsuffix='_wind')
 
-                                units_wind = pd.read_csv(wind_file_path, delimiter=',', header=1, nrows=1).iloc[0]
+                                            units_wind = pd.read_csv(wind_file_path, delimiter=',', header=1, nrows=1).iloc[0]
                                             
                         if fastorslow == 'fast':
                             # if file_count <=1 or file_count >= 4:
