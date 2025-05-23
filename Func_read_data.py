@@ -391,10 +391,11 @@ def save_despiked_data(fastdata, despiked_fastdata, output_folder, sensor):
     else:
         save_fastdata[['Ux', 'Uy', 'Uz', 'Ts']] = despiked_fastdata[
             ['Ux', 'Uy', 'Uz', 'Ts']]
+    save_fastdata = save_fastdata[~save_fastdata.index.duplicated(keep='first')]
     save_fastdata = save_fastdata.resample('100ms').asfreq()
 
     # Group by hour
-    for date, group in save_fastdata.groupby(pd.Grouper(freq='H')):
+    for date, group in save_fastdata.groupby(pd.Grouper(freq='h')):
         print(len(group))
         print(f"Processing date: {date}")
         if len(group) == 36000:  # Check if the data consists of a full hour (100ms frequency, 36000 rows per hour)
