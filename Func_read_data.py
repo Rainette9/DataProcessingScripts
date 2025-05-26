@@ -50,7 +50,7 @@ def read_data(folder_path, fastorslow, sensor, start=None, end=None, plot_data=F
                                 match = re.search(r'_(\d+)', file_name)
                                 if match:
                                     number = match[1]  # Extract the number as a string
-                                    print(f"Extracted number: {number}")
+                                    # print(f"Extracted number: {number}")
                                     units_wind = None
                                     # Search for a file with 'wind' and the same number in the name
                                     for wind_file in files:
@@ -449,7 +449,9 @@ def read_eddypro_data(folder, sensor, qc=False):
     eddypro_data= eddypro_data.apply(pd.to_numeric, errors='coerce')
     if 'H' in eddypro_data.columns:
         eddypro_data.loc[eddypro_data['qc_H']>=2, 'H'] = np.nan
+        eddypro_data.loc[(eddypro_data['H'] > 200) | (eddypro_data['H'] < -400), 'H'] = np.nan
     if 'LE' in eddypro_data.columns:
         eddypro_data.loc[eddypro_data['qc_LE']>=2, 'LE'] = np.nan
-    
+        eddypro_data.loc[(eddypro_data['LE'] > 200) | (eddypro_data['LE'] < -200), 'LE'] = np.nan
+
     return eddypro_data

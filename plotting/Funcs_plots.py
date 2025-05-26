@@ -8,9 +8,10 @@ sys.path.append(os.path.join(os.getcwd(), 'EC'))
 import Func_read_data
 from Func_read_data import convert_RH_liquid_to_ice
 
-def resample_with_threshold(data, resample_time, min_valid_percent=80):
+def resample_with_threshold(data, resample_time, interpolate=False, max_gap='1H', min_valid_percent=80):
     """
     Returns NaN if the percentage of valid values within the resample time is less than min_valid_percent.
+    Linearly interpolates gaps in the data only if the gaps are smaller than 1H.
 
     Parameters:
         data (pd.Series): The input data to be resampled.
@@ -20,6 +21,14 @@ def resample_with_threshold(data, resample_time, min_valid_percent=80):
     Returns:
         pd.Series: The resampled data with insufficient valid data set to NaN.
     """
+    if interpolate == True:
+        # Calculate the data's frequency in seconds
+        freq = (data.index[1] - data.index[0]).total_seconds()
+        # Convert the max_gap to seconds
+        max_gap_seconds = pd.to_timedelta(max_gap).total_seconds()
+        # Calculate the limit as the number of consecutive NaNs within the max_gap
+        limit = int(max_gap_seconds / freq)
+        data = data.interpolate(limit=limit, limit_direction='both', limit_area='inside')
     # Resample the data
     resampled_data = data.resample(resample_time).mean()
     # Count the number of valid (non-NaN) values in each resample period
@@ -30,9 +39,11 @@ def resample_with_threshold(data, resample_time, min_valid_percent=80):
     valid_percent = (valid_counts / total_counts) * 100
     # Apply the threshold and valid percentage filter
     filtered_data = resampled_data.where((valid_percent >= min_valid_percent))
+    # Interpolate gaps smaller than 1H
+
     return filtered_data
 
-def plot_SFC_slowdata_and_fluxes(slowdata, fluxes_SFC, fluxes_16m, fluxes_26m, sensor, start, end, resample_time='10min'):
+def plot_SFC_slowdata_and_fluxes(slowdata, fluxes_SFC, fluxes_16m, fluxes_26m, sensor, start, end, SPC=None, resample_time='10min', interpolate=False, interp_time='1h'):
 
     fig, ax = plt.subplots(9, 1, figsize=(13, 18), sharex=True)
 
@@ -62,12 +73,12 @@ def plot_SFC_slowdata_and_fluxes(slowdata, fluxes_SFC, fluxes_16m, fluxes_26m, s
     ax[2].scatter(resample_with_threshold(slowdata['WD2'][start:end], resample_time).index,
                   resample_with_threshold(slowdata['WD2'][start:end], resample_time),
                   label='WD2', s=5, color='darkblue')
-    ax[2].scatter(resample_with_threshold(fluxes_16m['wind_dir'][start:end], resample_time).index,
-                  resample_with_threshold(fluxes_16m['wind_dir'][start:end], resample_time),
-                  label='WD_16m', s=5, color='limegreen')
-    ax[2].scatter(resample_with_threshold(fluxes_26m['wind_dir'][start:end], resample_time).index,
-                  resample_with_threshold(fluxes_26m['wind_dir'][start:end], resample_time),
-                  label='WD_26m', s=5, color='gold')
+    # ax[2].scatter(resample_with_threshold(fluxes_16m['wind_dir'][start:end], resample_time).index,
+    #               resample_with_threshold(fluxes_16m['wind_dir'][start:end], resample_time),
+    #               label='WD_16m', s=5, color='limegreen')
+    # ax[2].scatter(resample_with_threshold(fluxes_26m['wind_dir'][start:end], resample_time).index,
+    #               resample_with_threshold(fluxes_26m['wind_dir'][start:end], resample_time),
+    #               label='WD_26m', s=5, color='gold')
     ax[2].set_ylabel('Wind Direction')
     ax[2].legend(frameon=False)
     ax[2].set_ylim(0, 360)
@@ -99,18 +110,21 @@ def plot_SFC_slowdata_and_fluxes(slowdata, fluxes_SFC, fluxes_16m, fluxes_26m, s
     ax[5].set_ylabel('HS_Cor [m]')
     ax[5].legend(frameon=False)
 
+    ax[6].plot(resample_with_threshold(SPC['Corrected Mass Flux(kg/m^2/s)'][start:end], resample_time)*1000, 
+               label='SPC Mass Flux', color='darkblue')
     ax[6].plot(resample_with_threshold(slowdata['PF_FC4'][start:end], resample_time),
                label='PF_FC4', color='deepskyblue')
-    ax[6].set_ylabel('Flowcapt [g/m2/s]')
+    ax[6].legend(frameon=False)
+    ax[6].set_ylabel('Mass flux [g/m2/s]')
 
-    ax[7].plot(resample_with_threshold(fluxes_SFC['H'][start:end], resample_time),
+    ax[7].plot(resample_with_threshold(fluxes_SFC['H'][start:end], resample_time, interpolate, interp_time),
                label='H SFC', color='deepskyblue')
-    ax[7].plot(resample_with_threshold(fluxes_16m['H'][start:end], resample_time),
+    ax[7].plot(resample_with_threshold(fluxes_16m['H'][start:end], resample_time, interpolate, interp_time),
                label='H 16m', color='limegreen')
-    ax[7].plot(resample_with_threshold(fluxes_26m['H'][start:end], resample_time),
+    ax[7].plot(resample_with_threshold(fluxes_26m['H'][start:end], resample_time, interpolate, interp_time),
                label='H 26m', color='gold')
     ax[7].set_ylabel('H [Wm-2]')
-    ax[7].set_ylim(-180, 80)
+    # ax[7].set_ylim(-180, 80)
     ax[7].legend(frameon=False)
 
     ax[8].plot(resample_with_threshold(fluxes_SFC['LE'][start:end], resample_time),
@@ -122,3 +136,26 @@ def plot_SFC_slowdata_and_fluxes(slowdata, fluxes_SFC, fluxes_16m, fluxes_26m, s
     plt.savefig(f'./plots/{sensor}_{start}_slowdata_and_fluxes.png', bbox_inches='tight')
     return fig, ax
 
+def check_log_profile(slowdata, fluxes_16m, fluxes_26m, start, end, heights=[0,2,3,16,26], log=False):
+    """
+    Check the log profile for the slow data and fluxes.
+    """
+    wind_speeds = [0, slowdata['WS2_Avg'][start:end].mean(), slowdata['WS1_Avg'][start:end].mean(), fluxes_16m['wind_speed'][start:end].mean(), fluxes_26m['wind_speed'][start:end].mean()]
+    plt.figure(figsize=(4, 6))
+    plt.scatter(wind_speeds, heights, label='Data Points')
+    if log==True:
+        # Fit a line to the log-log data
+        log_wind_speeds = np.log(wind_speeds[1:])  # Exclude the first zero value
+        log_heights = np.log(heights[1:])  # Exclude the first zero value
+        slope, intercept = np.polyfit(log_wind_speeds, log_heights, 1)
+
+        # Plot the fitted line
+        fitted_heights = np.exp(intercept) * np.array(wind_speeds[1:])**slope
+        plt.plot(wind_speeds[1:], fitted_heights, label=f'Fit: slope={slope:.2f}', color='red')
+
+        plt.xscale('log')
+        plt.yscale('log')
+    plt.legend()
+    plt.ylabel('Height (m)')
+    plt.xlabel('Wind Speed (m/s)')
+    plt.show()

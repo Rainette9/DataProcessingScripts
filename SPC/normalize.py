@@ -24,7 +24,11 @@ def binCorrection(temperature):# Returns correction table for specific temperatu
 
 def getCorrectionTable(): # Returns correction table for all bins and temperatures
     bin_corrected = pd.DataFrame(columns=['Temperature'] + bins_str)
-    for temp in np.linspace(-30,0,301): #Discretize every 0.1C
+    for temp in np.linspace(-34,0,341): #Discretize every 0.1C
+        # if temp < -30 or temp > 0: # Only correct between -30 and 0
+        #     bin_corrected.loc[len(bin_corrected)] = [temp] 
+        #     temp = round(temp, 1)
+        # else:      
         temp = round(temp, 1)
         correction = binCorrection(temp)
         bin_corrected.loc[len(bin_corrected)] = [temp] + correction
@@ -37,11 +41,9 @@ def tempCorrection(raw_data):
     raw_data['temp_round'] = raw_data['Temperature(C)'].round(1) #Discretize temperature
     grouped_raw_data = raw_data.groupby('temp_round',sort=False) # Group by discretized temperature
     corrected_data = grouped_raw_data.apply(correctTempBloc,conversions_df) #Apply correction by bloc of temperatures
-    
     return corrected_data.reset_index(level='temp_round',drop=True)
     
 def correctTempBloc(group_temp,conversions_df): #Apply correction to all lines that have same temperature
-    
     convert = conversions_df.loc[group_temp.iloc[0]['temp_round'] ] # Select temp specific conversion table
     new_group_temp = group_temp.copy()
     new_group_temp[bins_str] = 0
@@ -55,29 +57,32 @@ def computeMassFlux(SPC):
     rho = 920
     mass = 4/3*np.pi*1e-18*np.power(bins,3)/8*rho # in kg
     SPC['Corrected Mass Flux(kg/m^2/s)'] = (mass*SPC[bins_str].values).sum(axis=1)/A
+    return SPC
     
-def getNormalizedData(SPC_filenames,OneMin_filenames): # correct temperature and particle sizes
+def getNormalizedData(SPC_filenames, slowdata, OneMin_filenames=None): # correct temperature and particle sizes
     
     #SPC
     SPC_CSVS = []
     for file in SPC_filenames: #Read every csv file
-        df = pd.read_csv(file)
+        df = pd.read_csv(file, sep='\t', header=0)
         SPC_CSVS.append(df)
     SPC = pd.concat(SPC_CSVS,ignore_index=True) #Merge
-    SPC['Time(UTC)'] = pd.to_datetime(SPC['Time(UTC)']) # To datetime format
-    SPC.dropna(subset=['Mass Flux(g/cm^2/sec)'],inplace=True) #Drop all empty data lines
+    SPC['Time(UTC)'] = pd.to_datetime(SPC['Time(UTC)'], format="%d.%m.%Y %H:%M:%S") # To datetime format
+    # SPC.dropna(subset=['Mass Flux(g/cm^2/sec)'],inplace=True) #Drop all empty data lines
     SPC.set_index('Time(UTC)',inplace=True)
 
     #OneMin
-    ONEMIN_CSVS = []
-    for file in OneMin_filenames:
-        df=pd.read_csv(file,skiprows=1,usecols=['TIMESTAMP','TA'])
-        df.drop([0,1],inplace=True)
-        ONEMIN_CSVS.append(df)
-    OneMin = pd.concat(ONEMIN_CSVS,ignore_index=True)
-    OneMin['TIMESTAMP'] = pd.to_datetime(OneMin['TIMESTAMP']) #Convert format
-    OneMin['TA'] = OneMin['TA'].astype(float)
-    OneMin.set_index('TIMESTAMP',inplace=True)
+    # ONEMIN_CSVS = []
+    # for file in OneMin_filenames:
+    #     df=pd.read_csv(file,skiprows=1,usecols=['TIMESTAMP','TA'])
+    #     df.drop([0,1],inplace=True)
+    #     ONEMIN_CSVS.append(df)
+    # OneMin = pd.concat(ONEMIN_CSVS,ignore_index=True)
+    # OneMin['TIMESTAMP'] = pd.to_datetime(OneMin['TIMESTAMP']) #Convert format
+    # OneMin['TA'] = OneMin['TA'].astype(float)
+    # OneMin.set_index('TIMESTAMP',inplace=True)
+    OneMin=slowdata[['TA']].copy() # Use slowdata for temperature, as it is more accurate
+
 
     #Correct temperature
     SPC['Time_min'] = SPC.index.floor('min')
@@ -85,17 +90,17 @@ def getNormalizedData(SPC_filenames,OneMin_filenames): # correct temperature and
     SPC['Temperature(C)'] = SPC['TA']
     SPC = tempCorrection(SPC)
     computeMassFlux(SPC)
-    SPC.drop(columns=['TA','No.','Total Second','Temperature(C)','Mass Flux(g/cm^2/sec)','Time_min','temp_round','Time(Julian)'],inplace=True) #Keep only important data
+    SPC.drop(columns=['TA','Total Second','Temperature(C)','Time_min','temp_round','Time(Julian)'],inplace=True) #Keep only important data
     SPC.sort_index(inplace=True)
     return SPC
 
 def getRawData(SPC_filenames): # Returns raw data (only bins counts and flux mass)
     SPC_CSVS = []
     for file in SPC_filenames: #Read every csv file
-        df = pd.read_csv(file)
+        df = pd.read_csv(file, sep='\t', header=0)
         SPC_CSVS.append(df)
     SPC = pd.concat(SPC_CSVS,ignore_index=True) #Merge
-    SPC['Time(UTC)'] = pd.to_datetime(SPC['Time(UTC)']) # To datetime format
-    SPC.drop(columns=['No.','Total Second','Time(Julian)'],inplace=True) #Keep only important data
+    SPC['Time(UTC)'] = pd.to_datetime(SPC['Time(UTC)'], format="%d.%m.%Y %H:%M:%S") # To datetime format
+    SPC.drop(columns=['Total Second','Time(Julian)'],inplace=True) #Keep only important data
     SPC.set_index('Time(UTC)',inplace=True)
     return SPC
