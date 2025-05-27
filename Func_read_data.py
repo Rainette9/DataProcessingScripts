@@ -453,5 +453,7 @@ def read_eddypro_data(folder, sensor, qc=False):
     if 'LE' in eddypro_data.columns:
         eddypro_data.loc[eddypro_data['qc_LE']>=2, 'LE'] = np.nan
         eddypro_data.loc[(eddypro_data['LE'] > 200) | (eddypro_data['LE'] < -200), 'LE'] = np.nan
+    if 'Tau' in eddypro_data.columns:
+        eddypro_data.loc[eddypro_data['qc_Tau']>=2, 'Tau'] = np.nan
 
     return eddypro_data

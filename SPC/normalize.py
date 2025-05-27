@@ -24,7 +24,7 @@ def binCorrection(temperature):# Returns correction table for specific temperatu
 
 def getCorrectionTable(): # Returns correction table for all bins and temperatures
     bin_corrected = pd.DataFrame(columns=['Temperature'] + bins_str)
-    for temp in np.linspace(-34,0,341): #Discretize every 0.1C
+    for temp in np.linspace(-38,0,381): #Discretize every 0.1C
         # if temp < -30 or temp > 0: # Only correct between -30 and 0
         #     bin_corrected.loc[len(bin_corrected)] = [temp] 
         #     temp = round(temp, 1)
@@ -63,7 +63,7 @@ def getNormalizedData(SPC_filenames, slowdata, OneMin_filenames=None): # correct
     
     #SPC
     SPC_CSVS = []
-    for file in SPC_filenames: #Read every csv file
+    for file in sorted(SPC_filenames): # Sort files before reading
         df = pd.read_csv(file, sep='\t', header=0)
         SPC_CSVS.append(df)
     SPC = pd.concat(SPC_CSVS,ignore_index=True) #Merge
@@ -96,11 +96,13 @@ def getNormalizedData(SPC_filenames, slowdata, OneMin_filenames=None): # correct
 
 def getRawData(SPC_filenames): # Returns raw data (only bins counts and flux mass)
     SPC_CSVS = []
-    for file in SPC_filenames: #Read every csv file
+    for file in sorted(SPC_filenames): # Sort files before reading
         df = pd.read_csv(file, sep='\t', header=0)
         SPC_CSVS.append(df)
     SPC = pd.concat(SPC_CSVS,ignore_index=True) #Merge
-    SPC['Time(UTC)'] = pd.to_datetime(SPC['Time(UTC)'], format="%d.%m.%Y %H:%M:%S") # To datetime format
-    SPC.drop(columns=['Total Second','Time(Julian)'],inplace=True) #Keep only important data
+    # SPC['Time(UTC)'] = pd.to_datetime(SPC['Time(UTC)'], format="%d.%m.%Y %H:%M:%S") # To datetime format
+    SPC['Time(UTC)'] = pd.to_datetime(SPC['Time(UTC)'], format="%Y-%m-%d %H:%M:%S") # To datetime format
+    # SPC.drop(columns=['Total Second','Time(Julian)'],inplace=True) #Keep only important data
     SPC.set_index('Time(UTC)',inplace=True)
+    SPC.sort_index(inplace=True)
     return SPC

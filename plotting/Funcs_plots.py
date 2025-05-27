@@ -127,35 +127,59 @@ def plot_SFC_slowdata_and_fluxes(slowdata, fluxes_SFC, fluxes_16m, fluxes_26m, s
     # ax[7].set_ylim(-180, 80)
     ax[7].legend(frameon=False)
 
-    ax[8].plot(resample_with_threshold(fluxes_SFC['LE'][start:end], resample_time),
+    ax[8].plot(resample_with_threshold(fluxes_SFC['LE'][start:end], resample_time, interpolate, interp_time),
                label='LE SFC', color='deepskyblue')
     ax[8].set_ylabel('LE [Wm-2]')
     ax[8].legend(frameon=False)
 
-    fig.suptitle(f'{sensor} slowdata {start} - {end}', y=0.92, fontsize=16)
+    fig.suptitle(f'{resample_time} resampled {start} - {end}', y=0.92, fontsize=16)
     plt.savefig(f'./plots/{sensor}_{start}_slowdata_and_fluxes.png', bbox_inches='tight')
     return fig, ax
 
-def check_log_profile(slowdata, fluxes_16m, fluxes_26m, start, end, heights=[0,2,3,16,26], log=False):
+def check_log_profile(slowdata, fluxes_SFC, fluxes_16m, fluxes_26m, start, end, heights=[0,2,3,16,26], log=False):
     """
     Check the log profile for the slow data and fluxes.
     """
+    fig, axes = plt.subplots(1, 4, figsize=(15, 6), sharey=True)
+
+    # Wind Speed Profile
     wind_speeds = [0, slowdata['WS2_Avg'][start:end].mean(), slowdata['WS1_Avg'][start:end].mean(), fluxes_16m['wind_speed'][start:end].mean(), fluxes_26m['wind_speed'][start:end].mean()]
-    plt.figure(figsize=(4, 6))
-    plt.scatter(wind_speeds, heights, label='Data Points')
-    if log==True:
-        # Fit a line to the log-log data
+    axes[0].scatter(wind_speeds, heights, label='Wind Speed Data Points')
+    if log:
         log_wind_speeds = np.log(wind_speeds[1:])  # Exclude the first zero value
         log_heights = np.log(heights[1:])  # Exclude the first zero value
         slope, intercept = np.polyfit(log_wind_speeds, log_heights, 1)
-
-        # Plot the fitted line
         fitted_heights = np.exp(intercept) * np.array(wind_speeds[1:])**slope
-        plt.plot(wind_speeds[1:], fitted_heights, label=f'Fit: slope={slope:.2f}', color='red')
+        axes[0].plot(wind_speeds[1:], fitted_heights, label=f'Fit: slope={slope:.2f}', color='red')
+        axes[0].set_xscale('log')
+        axes[0].set_yscale('log')
+    axes[0].set_xlabel('Wind Speed (m/s)')
+    axes[0].set_ylabel('Height (m)')
+    # axes[0].legend()
+    axes[0].set_title('Wind Speed Profile')
 
-        plt.xscale('log')
-        plt.yscale('log')
-    plt.legend()
-    plt.ylabel('Height (m)')
-    plt.xlabel('Wind Speed (m/s)')
+    # Temperature Profile
+    temperatures = [slowdata['SFTempK'][start:end].mean() - 273.15, slowdata['TA'][start:end].mean(), fluxes_16m['sonic_temperature'][start:end].mean() - 273.15, fluxes_26m['sonic_temperature'][start:end].mean() - 273.15]
+    axes[1].scatter(temperatures, heights[:2] + heights[3:], label='Temperature Data Points')
+    axes[1].set_xlabel('Temperature (°C)')
+    # axes[1].legend()
+    axes[1].set_title('Temperature Profile')
+
+    # Sensible Heat Flux Profile
+    sensible_heat_fluxes = [fluxes_SFC['H'][start:end].mean(), fluxes_16m['H'][start:end].mean(), fluxes_26m['H'][start:end].mean()]
+    axes[2].scatter(sensible_heat_fluxes, [heights[1]] + heights[3:], label='Sensible Heat Flux Data Points')
+    axes[2].set_xlabel('Sensible Heat Flux (W/m²)')
+    # axes[2].legend()
+    axes[2].set_title('Sensible Heat Flux Profile')
+
+    # Sensible Heat Flux Profile
+    heat_fluxes = [fluxes_SFC['Tau'][start:end].mean(), fluxes_16m['Tau'][start:end].mean(), fluxes_26m['Tau'][start:end].mean()]
+    axes[3].scatter(heat_fluxes, [heights[1]] + heights[3:], label='Sensible Heat Flux Data Points')
+    axes[3].set_xlabel('Momentum Flux (kg m-1 s-2)')
+    # axes[3].legend()
+    axes[3].set_title('Momentum Flux Profile') 
+
+    plt.suptitle(f'Wind, Temperature, and Sensible Heat Flux Profiles from {start} to {end}', fontsize=16, y=0.97)
+    plt.tight_layout()
+    plt.savefig(f'./plots/log_profile_{start}_to_{end}.png', bbox_inches='tight')
     plt.show()
