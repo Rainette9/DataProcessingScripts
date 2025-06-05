@@ -8,14 +8,66 @@ sys.path.append(os.path.join(os.getcwd(), 'EC'))
 import Func_read_data
 from Func_read_data import convert_RH_liquid_to_ice
 
-def resample_with_threshold(data, resample_time, interpolate=False, max_gap='1H', min_valid_percent=80):
+
+
+
+
+def find_consecutive_periods(slowdata, SPC, threshold=1, duration='3h'):
+    """
+    Finds periods where both slowdata['PF_FC4'] and SPC['Corrected Mass Flux(kg/m^2/s)']
+    are greater than a threshold for consecutive hours, while removing occurrences where
+    slowdata['HS_Cor'] decreases by more than 1 per hour.
+
+    Parameters:
+        slowdata (pd.DataFrame): DataFrame containing 'PF_FC4' and 'HS_Cor' columns.
+        SPC (pd.DataFrame): DataFrame containing 'Corrected Mass Flux(kg/m^2/s)' column.
+        threshold (float): The threshold value to check against.
+        duration (str): Minimum duration of consecutive periods (e.g., '3H').
+
+    Returns:
+        list: A list of tuples containing the start and end times of consecutive periods.
+    """
+    # Remove occurrences where 'HS_Cor' decreases by more than 1 per hour
+    hs_cor_diff = slowdata['HS_Cor'].resample('1h').mean().diff()
+    slowdata = slowdata[hs_cor_diff.reindex(slowdata.index, method='ffill') >= -0.02/60] ### 2cm per hour
+    slowdata =slowdata[slowdata['WS1_Avg']>3]
+    # Create masks for values greater than the threshold
+    mask_slowdata = slowdata['PF_FC4'] > threshold
+    # mask_SPC = SPC['Corrected Mass Flux(kg/m^2/s)']  >= threshold /1000
+    mask_SPC = SPC['Corrected Mass Flux(kg/m^2/s)']  >= 0
+    # Combine masks to find periods where both conditions are met
+    combined_mask = mask_slowdata & mask_SPC
+    # Resample to hourly frequency and check for consecutive periods
+    resampled_mask = combined_mask.resample('3h').mean() > 0
+
+    # Identify consecutive periods
+    consecutive_periods = resampled_mask.astype(int).diff().fillna(0)
+    start_times = resampled_mask[consecutive_periods == 1].index
+    end_times = resampled_mask[consecutive_periods == -1].index
+
+    # Ensure start and end times align correctly
+    if len(end_times) < len(start_times):
+        end_times = end_times.append(pd.Index([resampled_mask.index[-1]]))
+
+    # Filter periods based on duration
+    valid_periods = []
+    for starts, ends in zip(start_times, end_times):
+        if (ends - starts) >= pd.Timedelta(duration):
+            valid_periods.append((starts, ends))
+
+    return valid_periods
+
+
+
+
+def resample_with_threshold(data, resample_time, interpolate=False, max_gap='1h', min_valid_percent=80):
     """
     Returns NaN if the percentage of valid values within the resample time is less than min_valid_percent.
     Linearly interpolates gaps in the data only if the gaps are smaller than 1H.
 
     Parameters:
         data (pd.Series): The input data to be resampled.
-        resample_time (str): The resampling frequency (e.g., '10min', '1H').
+        resample_time (str): The resampling frequency (e.g., '10min', '1h').
         min_valid_percent (float): Minimum percentage of valid values required to keep the resampled value.
 
     Returns:
@@ -45,7 +97,14 @@ def resample_with_threshold(data, resample_time, interpolate=False, max_gap='1H'
 
 def plot_SFC_slowdata_and_fluxes(slowdata, fluxes_SFC, fluxes_16m, fluxes_26m, sensor, start, end, SPC=None, resample_time='10min', interpolate=False, interp_time='1h'):
 
+    consecutive_periods = find_consecutive_periods(slowdata, SPC) ### find 3h hour consecutive BS periods
+    filtered_periods = [period for period in consecutive_periods if period[0] >= pd.Timestamp(start) and period[1] <= pd.Timestamp(end)]
+
     fig, ax = plt.subplots(9, 1, figsize=(13, 18), sharex=True)
+
+    for a in ax:
+        for starts, ends in filtered_periods:
+            a.axvspan(starts, ends, color='grey', alpha=0.2)
 
     ax[0].plot(resample_with_threshold(slowdata['SFTempK'][start:end] - 273.15, resample_time),
                label='TS', color='darkblue', alpha=0.8, linestyle='dashed')
@@ -132,6 +191,7 @@ def plot_SFC_slowdata_and_fluxes(slowdata, fluxes_SFC, fluxes_16m, fluxes_26m, s
     ax[8].set_ylabel('LE [Wm-2]')
     ax[8].legend(frameon=False)
 
+
     fig.suptitle(f'{resample_time} resampled {start} - {end}', y=0.92, fontsize=16)
     plt.savefig(f'./plots/{sensor}_{start}_slowdata_and_fluxes.png', bbox_inches='tight')
     return fig, ax
@@ -173,11 +233,11 @@ def check_log_profile(slowdata, fluxes_SFC, fluxes_16m, fluxes_26m, start, end, 
     axes[2].set_title('Sensible Heat Flux Profile')
 
     # Sensible Heat Flux Profile
-    heat_fluxes = [fluxes_SFC['Tau'][start:end].mean(), fluxes_16m['Tau'][start:end].mean(), fluxes_26m['Tau'][start:end].mean()]
+    heat_fluxes = [fluxes_SFC['TKE'][start:end].mean(), fluxes_16m['TKE'][start:end].mean(), fluxes_26m['TKE'][start:end].mean()]
     axes[3].scatter(heat_fluxes, [heights[1]] + heights[3:], label='Sensible Heat Flux Data Points')
-    axes[3].set_xlabel('Momentum Flux (kg m-1 s-2)')
+    axes[3].set_xlabel('TKE')
     # axes[3].legend()
-    axes[3].set_title('Momentum Flux Profile') 
+    axes[3].set_title('TKE') 
 
     plt.suptitle(f'Wind, Temperature, and Sensible Heat Flux Profiles from {start} to {end}', fontsize=16, y=0.97)
     plt.tight_layout()
