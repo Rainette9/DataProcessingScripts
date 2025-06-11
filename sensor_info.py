@@ -25,12 +25,13 @@ def get_sensor_info(sensor, year=None):
             'H20_Span': 0.9885
         }
         heights = {
-            'WIND2': 2, # m
-            'WIND1': 3, # m
+            'WIND2': 1.45, # m
+            'WIND1': 3.45, # m
             'sonic': 1.9, # m
             'SD': 1.7, # m
             'TH': 2, # m
-            'RAD': 2, # m
+            'RAD1': 192.5, # m
+            'RAD2': 42.5, # m
             'FC': 0, # m 
             'SPC': 0.2 # m
         

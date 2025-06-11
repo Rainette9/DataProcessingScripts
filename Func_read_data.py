@@ -448,12 +448,12 @@ def read_eddypro_data(folder, sensor, qc=False):
     # print("Metadata extracted:", metadata.to_dict())
     eddypro_data= eddypro_data.apply(pd.to_numeric, errors='coerce')
     if 'H' in eddypro_data.columns:
-        eddypro_data.loc[eddypro_data['qc_H']>=2, 'H'] = np.nan
+        eddypro_data.loc[eddypro_data['qc_H']>=1, 'H'] = np.nan
         eddypro_data.loc[(eddypro_data['H'] > 200) | (eddypro_data['H'] < -400), 'H'] = np.nan
     if 'LE' in eddypro_data.columns:
-        eddypro_data.loc[eddypro_data['qc_LE']>=2, 'LE'] = np.nan
+        eddypro_data.loc[eddypro_data['qc_LE']>=1, 'LE'] = np.nan
         eddypro_data.loc[(eddypro_data['LE'] > 200) | (eddypro_data['LE'] < -200), 'LE'] = np.nan
     if 'Tau' in eddypro_data.columns:
-        eddypro_data.loc[eddypro_data['qc_Tau']>=2, 'Tau'] = np.nan
+        eddypro_data.loc[eddypro_data['qc_Tau']>=1, 'Tau'] = np.nan
 
     return eddypro_data

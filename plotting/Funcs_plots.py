@@ -12,7 +12,7 @@ from Func_read_data import convert_RH_liquid_to_ice
 
 
 
-def find_consecutive_periods(slowdata, SPC, threshold=1, duration='3h'):
+def find_consecutive_periods(slowdata, SPC,  threshold=1, duration='4h'):
     """
     Finds periods where both slowdata['PF_FC4'] and SPC['Corrected Mass Flux(kg/m^2/s)']
     are greater than a threshold for consecutive hours, while removing occurrences where
@@ -124,28 +124,37 @@ def plot_SFC_slowdata_and_fluxes(slowdata, fluxes_SFC, fluxes_16m, fluxes_26m, s
                label='RH', color='deepskyblue')
     ax[1].set_ylabel('RH wrt ice [%]')
     ax[1].legend(frameon=False)
-    ax[1].set_ylim(0, 100)
+    ax[1].set_ylim(0, 115)
 
-    ax[2].scatter(resample_with_threshold(slowdata['WD1'][start:end], resample_time).index,
-                  resample_with_threshold(slowdata['WD1'][start:end], resample_time),
-                  label='WD1', s=5, color='deepskyblue')
-    ax[2].scatter(resample_with_threshold(slowdata['WD2'][start:end], resample_time).index,
-                  resample_with_threshold(slowdata['WD2'][start:end], resample_time),
-                  label='WD2', s=5, color='darkblue')
-    # ax[2].scatter(resample_with_threshold(fluxes_16m['wind_dir'][start:end], resample_time).index,
-    #               resample_with_threshold(fluxes_16m['wind_dir'][start:end], resample_time),
-    #               label='WD_16m', s=5, color='limegreen')
-    # ax[2].scatter(resample_with_threshold(fluxes_26m['wind_dir'][start:end], resample_time).index,
-    #               resample_with_threshold(fluxes_26m['wind_dir'][start:end], resample_time),
-    #               label='WD_26m', s=5, color='gold')
+    wd1 = resample_with_threshold(slowdata['WD1'][start:end], resample_time)
+    wd2 = resample_with_threshold(slowdata['WD2'][start:end], resample_time)
+
+    # WD1 markers
+    ax[2].scatter(wd1[wd1.between(0, 90)].index, wd1[wd1.between(0, 90)],
+                  label='WD1 (0-90)', s=10, color='deepskyblue', marker='s')
+    ax[2].scatter(wd1[wd1.between(90, 180)].index, wd1[wd1.between(90, 180)],
+                  label='WD1 (90-180)', s=10, color='deepskyblue',  marker='o', facecolors='none')
+    ax[2].scatter(wd1[~wd1.between(0, 180)].index, wd1[~wd1.between(0, 180)],
+                  label='WD1 (180-360)', s=10, color='deepskyblue', marker='x')
+
+    # WD2 markers
+    ax[2].scatter(wd2[wd2.between(0, 90)].index, wd2[wd2.between(0, 90)],
+                  label='WD2 (0-90)', s=10, color='darkblue', marker='s')
+    ax[2].scatter(wd2[wd2.between(90, 180)].index, wd2[wd2.between(90, 180)],
+                  label='WD2 (90-180)', s=10, color='darkblue', marker='o', facecolors='none')
+    ax[2].scatter(wd2[~wd2.between(0, 180)].index, wd2[~wd2.between(0, 180)],
+                  label='WD2 (180-360)', s=10, color='darkblue', marker='x')
+
     ax[2].set_ylabel('Wind Direction')
     ax[2].legend(frameon=False)
     ax[2].set_ylim(0, 360)
 
-    ax[3].plot(resample_with_threshold(slowdata['WS1_Avg'][start:end], resample_time),
-               label='WS1_Avg', color='deepskyblue')
     ax[3].plot(resample_with_threshold(slowdata['WS2_Avg'][start:end], resample_time),
                label='WS2_Avg', color='darkblue')
+    ax[3].plot(resample_with_threshold(fluxes_SFC['wind_speed'][start:end], resample_time),
+               label='WS_SFC', color='royalblue', alpha=0.8, linestyle='dashed')
+    ax[3].plot(resample_with_threshold(slowdata['WS1_Avg'][start:end], resample_time),
+               label='WS1_Avg', color='deepskyblue')
     ax[3].plot(resample_with_threshold(fluxes_16m['wind_speed'][start:end], resample_time),
                label='WS_16m', color='limegreen')
     ax[3].plot(resample_with_threshold(fluxes_26m['wind_speed'][start:end], resample_time),
@@ -196,14 +205,18 @@ def plot_SFC_slowdata_and_fluxes(slowdata, fluxes_SFC, fluxes_16m, fluxes_26m, s
     plt.savefig(f'./plots/{sensor}_{start}_slowdata_and_fluxes.png', bbox_inches='tight')
     return fig, ax
 
-def check_log_profile(slowdata, fluxes_SFC, fluxes_16m, fluxes_26m, start, end, heights=[0,2,3,16,26], log=False):
+def check_log_profile(slowdata, fluxes_SFC, fluxes_16m, fluxes_26m, start, end, heights=[0,1.5,1.9,3.5,16,26], log=False):
     """
     Check the log profile for the slow data and fluxes.
     """
-    fig, axes = plt.subplots(1, 4, figsize=(15, 6), sharey=True)
-
+    fig, axes = plt.subplots(1, 5, figsize=(15, 6), sharey=True)
+    time_diff=pd.Timestamp(end) - pd.Timestamp(start)
     # Wind Speed Profile
-    wind_speeds = [0, slowdata['WS2_Avg'][start:end].mean(), slowdata['WS1_Avg'][start:end].mean(), fluxes_16m['wind_speed'][start:end].mean(), fluxes_26m['wind_speed'][start:end].mean()]
+    wind_speeds = [0, resample_with_threshold(slowdata['WS2_Avg'][start:end], time_diff, True).mean(), 
+                   resample_with_threshold(fluxes_SFC['wind_speed'][start:end], time_diff, True).mean(),
+                   resample_with_threshold(slowdata['WS1_Avg'][start:end], time_diff, True).mean(), 
+                   resample_with_threshold(fluxes_16m['wind_speed'][start:end], time_diff, True).mean(), 
+                   resample_with_threshold(fluxes_26m['wind_speed'][start:end], time_diff, True).mean()]
     axes[0].scatter(wind_speeds, heights, label='Wind Speed Data Points')
     if log:
         log_wind_speeds = np.log(wind_speeds[1:])  # Exclude the first zero value
@@ -219,27 +232,191 @@ def check_log_profile(slowdata, fluxes_SFC, fluxes_16m, fluxes_26m, start, end, 
     axes[0].set_title('Wind Speed Profile')
 
     # Temperature Profile
-    temperatures = [slowdata['SFTempK'][start:end].mean() - 273.15, slowdata['TA'][start:end].mean(), fluxes_16m['sonic_temperature'][start:end].mean() - 273.15, fluxes_26m['sonic_temperature'][start:end].mean() - 273.15]
-    axes[1].scatter(temperatures, heights[:2] + heights[3:], label='Temperature Data Points')
+    temperatures = [
+        resample_with_threshold(slowdata['SFTempK'][start:end] - 273.15, time_diff, True).mean(),
+        resample_with_threshold(slowdata['TA'][start:end], time_diff, True).mean(),
+        resample_with_threshold(fluxes_SFC['sonic_temperature'][start:end]- 273.15, time_diff, True).mean(),
+        resample_with_threshold(fluxes_16m['sonic_temperature'][start:end] - 273.15, time_diff, True).mean(),
+        resample_with_threshold(fluxes_26m['sonic_temperature'][start:end] - 273.15, time_diff, True).mean()
+    ]
+    axes[1].scatter(temperatures, heights[:3] + heights[4:], label='Temperature Data Points')
     axes[1].set_xlabel('Temperature (°C)')
     # axes[1].legend()
     axes[1].set_title('Temperature Profile')
 
     # Sensible Heat Flux Profile
-    sensible_heat_fluxes = [fluxes_SFC['H'][start:end].mean(), fluxes_16m['H'][start:end].mean(), fluxes_26m['H'][start:end].mean()]
-    axes[2].scatter(sensible_heat_fluxes, [heights[1]] + heights[3:], label='Sensible Heat Flux Data Points')
+    sensible_heat_fluxes = [
+        resample_with_threshold(fluxes_SFC['H'][start:end], time_diff, True).mean(),
+        resample_with_threshold(fluxes_16m['H'][start:end], time_diff, True).mean(),
+        resample_with_threshold(fluxes_26m['H'][start:end], time_diff, True).mean()
+    ]
+    axes[2].scatter(sensible_heat_fluxes, [heights[2]] + heights[4:], label='Sensible Heat Flux Data Points')
     axes[2].set_xlabel('Sensible Heat Flux (W/m²)')
     # axes[2].legend()
     axes[2].set_title('Sensible Heat Flux Profile')
 
-    # Sensible Heat Flux Profile
-    heat_fluxes = [fluxes_SFC['TKE'][start:end].mean(), fluxes_16m['TKE'][start:end].mean(), fluxes_26m['TKE'][start:end].mean()]
-    axes[3].scatter(heat_fluxes, [heights[1]] + heights[3:], label='Sensible Heat Flux Data Points')
+    # TKE Profile
+    tke_fluxes = [
+        resample_with_threshold(fluxes_SFC['TKE'][start:end], time_diff, True).mean(),
+        resample_with_threshold(fluxes_16m['TKE'][start:end], time_diff, True).mean(),
+        resample_with_threshold(fluxes_26m['TKE'][start:end], time_diff, True).mean()
+    ]
+    axes[3].scatter(tke_fluxes, [heights[2]] + heights[4:], label='TKE Data Points')
     axes[3].set_xlabel('TKE')
     # axes[3].legend()
-    axes[3].set_title('TKE') 
+    axes[3].set_title('TKE Profile')
+
+    # TKE Profile
+    tke_fluxes = [
+        resample_with_threshold(fluxes_SFC['(z-d)/L'][start:end], time_diff, True).mean(),
+        resample_with_threshold(fluxes_16m['(z-d)/L'][start:end], time_diff, True).mean(),
+        resample_with_threshold(fluxes_26m['(z-d)/L'][start:end], time_diff, True).mean()
+    ]
+    axes[4].scatter(tke_fluxes, [heights[2]] + heights[4:], label='stability Data Points')
+    axes[4].set_xlabel('stability')
+    # axes[4].legend()
+    axes[4].set_title('stability Profile')
 
     plt.suptitle(f'Wind, Temperature, and Sensible Heat Flux Profiles from {start} to {end}', fontsize=16, y=0.97)
     plt.tight_layout()
-    plt.savefig(f'./plots/log_profile_{start}_to_{end}.png', bbox_inches='tight')
+    # plt.savefig(f'./plots/log_profile_{start}_to_{end}.png', bbox_inches='tight')
+    # plt.show()
+
+def check_log_profiles(slowdata, fluxes_SFC, fluxes_16m, fluxes_26m,consecutive_days, heights=[0,2,3,16,26], log=False):
+    """
+    Check the log profile for the slow data and fluxes.
+    """
+    fig, axes = plt.subplots(1, 4, figsize=(15, 6), sharey=True)
+    for start,end in consecutive_days:
+        # Wind Speed Profile
+        wind_speeds = [0, slowdata['WS2_Avg'][start:end], slowdata['WS1_Avg'][start:end].mean(), fluxes_16m['wind_speed'][start:end].mean(), fluxes_26m['wind_speed'][start:end].mean()]
+        axes[0].scatter(wind_speeds, heights, label='Wind Speed Data Points')
+        if log:
+            log_wind_speeds = np.log(wind_speeds[1:])  # Exclude the first zero value
+            log_heights = np.log(heights[1:])  # Exclude the first zero value
+            slope, intercept = np.polyfit(log_wind_speeds, log_heights, 1)
+            fitted_heights = np.exp(intercept) * np.array(wind_speeds[1:])**slope
+            axes[0].plot(wind_speeds[1:], fitted_heights, label=f'Fit: slope={slope:.2f}', color='red')
+            axes[0].set_xscale('log')
+            axes[0].set_yscale('log')
+        axes[0].set_xlabel('Wind Speed (m/s)')
+        axes[0].set_ylabel('Height (m)')
+        # axes[0].legend()
+        axes[0].set_title('Wind Speed Profile')
+
+        # Temperature Profile
+        temperatures = [slowdata['SFTempK'][start:end].mean() - 273.15, slowdata['TA'][start:end].mean(), fluxes_16m['sonic_temperature'][start:end].mean() - 273.15, fluxes_26m['sonic_temperature'][start:end].mean() - 273.15]
+        axes[1].scatter(temperatures, heights[:2] + heights[3:], label='Temperature Data Points')
+        axes[1].set_xlabel('Temperature (°C)')
+        # axes[1].legend()
+        axes[1].set_title('Temperature Profile')
+
+        # Sensible Heat Flux Profile
+        sensible_heat_fluxes = [fluxes_SFC['H'][start:end].mean(), fluxes_16m['H'][start:end].mean(), fluxes_26m['H'][start:end].mean()]
+        axes[2].scatter(sensible_heat_fluxes, [heights[1]] + heights[3:], label='Sensible Heat Flux Data Points')
+        axes[2].set_xlabel('Sensible Heat Flux (W/m²)')
+        # axes[2].legend()
+        axes[2].set_title('Sensible Heat Flux Profile')
+
+        # Sensible Heat Flux Profile
+        heat_fluxes = [fluxes_SFC['TKE'][start:end].mean(), fluxes_16m['TKE'][start:end].mean(), fluxes_26m['TKE'][start:end].mean()]
+        axes[3].scatter(heat_fluxes, [heights[1]] + heights[3:], label='Sensible Heat Flux Data Points')
+        axes[3].set_xlabel('TKE')
+        # axes[3].legend()
+        axes[3].set_title('TKE') 
+
+    plt.suptitle(f'Wind, Temperature, and Sensible Heat Flux Profiles from {start} to {end}', fontsize=16, y=0.97)
+    plt.tight_layout()
+    # plt.savefig(f'./plots/log_profile_{start}_to_{end}.png', bbox_inches='tight')
+    # plt.show()
+
+
+def plot_bi_monthly_mean_H(fluxes_SFC, fluxes_16m, fluxes_26m, heights, variable):
+    """
+    Plots the bi-monthly mean H with 25th and 75th percentiles for different heights.
+
+    Parameters:
+        fluxes_SFC (pd.DataFrame): DataFrame containing SFC flux data.
+        fluxes_16m (pd.DataFrame): DataFrame containing 16m flux data.
+        fluxes_26m (pd.DataFrame): DataFrame containing 26m flux data.
+        heights (list): List of heights corresponding to SFC, 16m, and 26m.
+        variable (str): The variable to plot.
+    """
+    # Add 'Month' and 'Day' columns to group data
+    fluxes_SFC['Month'] = fluxes_SFC.index.month
+    fluxes_SFC['Day'] = fluxes_SFC.index.day
+    fluxes_16m['Month'] = fluxes_16m.index.month
+    fluxes_16m['Day'] = fluxes_16m.index.day
+    fluxes_26m['Month'] = fluxes_26m.index.month
+    fluxes_26m['Day'] = fluxes_26m.index.day
+
+    # Add 'Month_Name' column for labelingfluxes_SFC['TI']= np.sqrt(fluxes_SFC['u_var']**2 + fluxes_SFC['v_var']**2 + fluxes_SFC['w_var']**2) / fluxes_SFC['wind_speed']
+    fluxes_SFC['Month_Name'] = fluxes_SFC.index.month_name()
+    fluxes_16m['Month_Name'] = fluxes_16m.index.month_name()
+    fluxes_26m['Month_Name'] = fluxes_26m.index.month_name()
+
+    # Initialize the figure
+    fig, axes = plt.subplots(2, 12, figsize=(30, 10), sharey=True, sharex=True)
+    axes = axes.flatten()
+
+    # Loop through each month and create subplots for the first and second halves
+    for month in range(1, 13):
+        for part in [1, 2]:  # 1 for first half, 2 for second half
+            ax = axes[(month - 1) * 2 + (part - 1)]
+
+            # Filter data for the current month and part
+            if part == 1:
+                sfc_part = fluxes_SFC[(fluxes_SFC['Month'] == month) & (fluxes_SFC['Day'] <= 15)][variable]
+                m16_part = fluxes_16m[(fluxes_16m['Month'] == month) & (fluxes_16m['Day'] <= 15)][variable]
+                m26_part = fluxes_26m[(fluxes_26m['Month'] == month) & (fluxes_26m['Day'] <= 15)][variable]
+                title_suffix = " (1st Half)"
+            else:
+                sfc_part = fluxes_SFC[(fluxes_SFC['Month'] == month) & (fluxes_SFC['Day'] > 15)][variable]
+                m16_part = fluxes_16m[(fluxes_16m['Month'] == month) & (fluxes_16m['Day'] > 15)][variable]
+                m26_part = fluxes_26m[(fluxes_26m['Month'] == month) & (fluxes_26m['Day'] > 15)][variable]
+                title_suffix = " (2nd Half)"
+
+            # Calculate mean, 25th, and 75th percentiles
+            means = [
+                resample_with_threshold(sfc_part, '15D', True, '30min', 60).mean() if not sfc_part.empty else np.nan,
+                resample_with_threshold(m16_part, '15D', True, '3h', 60).mean() if not m16_part.empty else np.nan,
+                resample_with_threshold(m26_part, '15D', True, '3h', 60).mean() if not m26_part.empty else np.nan
+            ]
+            percentiles_25 = [
+                resample_with_threshold(sfc_part, '1h', True, '30min', 60).quantile(0.25) if not sfc_part.empty else np.nan,
+                resample_with_threshold(m16_part, '1h', True, '1h', 60).quantile(0.25) if not m16_part.empty else np.nan,
+                resample_with_threshold(m26_part, '1h', True, '1h', 60).quantile(0.25) if not m26_part.empty else np.nan
+            ]
+            percentiles_75 = [
+                resample_with_threshold(sfc_part, '1h', True, '30min', 60).quantile(0.75) if not sfc_part.empty else np.nan,
+                resample_with_threshold(m16_part, '1h', True, '1h', 60).quantile(0.75) if not m16_part.empty else np.nan,
+                resample_with_threshold(m26_part, '1h', True, '1h', 60).quantile(0.75) if not m26_part.empty else np.nan
+            ]
+            # Plot the means with whiskers
+            # Ensure error bars are non-negative
+            lower_error = np.maximum(0, np.array(means) - np.array(percentiles_25))
+            upper_error = np.maximum(0, np.array(percentiles_75) - np.array(means))
+
+            # Plot the means with whiskers
+            ax.errorbar(
+                means, heights,
+                xerr=[lower_error, upper_error],
+                fmt='o-', capsize=5, label='H'
+            )
+
+            # Set titles and labels
+            if not fluxes_SFC['Month_Name'][fluxes_SFC['Month'] == month].empty:
+                ax.set_title(f"{fluxes_SFC['Month_Name'][fluxes_SFC['Month'] == month].iloc[0]}{title_suffix}", fontsize=10)
+            else:
+                ax.set_title(f"Month {month}{title_suffix}", fontsize=10)
+            if (month - 1) * 2 + (part - 1) % 4 == 0:  # First column
+                ax.set_ylabel("Height (m)")
+            if (month - 1) * 2 + (part - 1) >= 20:  # Last row
+                ax.set_xlabel(f"{variable} (Mean ± IQR)")
+            ax.grid(True)
+
+    # Adjust layout and show the plot
+    plt.tight_layout()
+    plt.suptitle(f"HalfMonthly Mean {variable} with 25th and 75th Percentiles", fontsize=16, y=1.02)
+    plt.savefig(f'./plots/BiMonthly_Mean_{variable}.png', bbox_inches='tight', dpi=300)
     plt.show()
