@@ -145,6 +145,13 @@ def plot_SFC_slowdata_and_fluxes(slowdata, fluxes_SFC, fluxes_16m, fluxes_26m, s
     ax[2].scatter(wd2[~wd2.between(0, 180)].index, wd2[~wd2.between(0, 180)],
                   label='WD2 (180-360)', s=10, color='darkblue', marker='x')
 
+    # Add a secondary y-axis (twinx) on the right
+    ax2_right = ax[2].twinx()
+    ax2_right.scatter(resample_with_threshold(fluxes_SFC['(z-d)/L'][start:end], resample_time).index, resample_with_threshold(fluxes_SFC['(z-d)/L'][start:end], resample_time, interpolate, interp_time),color='darkorange', label='z/L', s=10, marker='^')
+    ax2_right.set_ylabel('z/L', color='darkorange')
+    ax2_right.set_ylim(-0.4, 2)
+    ax2_right.legend(frameon=False, loc='upper right')
+
     ax[2].set_ylabel('Wind Direction')
     ax[2].legend(frameon=False)
     ax[2].set_ylim(0, 360)
@@ -202,7 +209,7 @@ def plot_SFC_slowdata_and_fluxes(slowdata, fluxes_SFC, fluxes_16m, fluxes_26m, s
 
 
     fig.suptitle(f'{resample_time} resampled {start} - {end}', y=0.92, fontsize=16)
-    plt.savefig(f'./plots/{sensor}_{start}_slowdata_and_fluxes.png', bbox_inches='tight')
+    plt.savefig(f'./plots_specific_events/{sensor}_{start}_slowdata_and_fluxes.png', bbox_inches='tight')
     return fig, ax
 
 def check_log_profile(slowdata, fluxes_SFC, fluxes_16m, fluxes_26m, start, end, heights=[0,1.5,1.9,3.5,16,26], log=False):
