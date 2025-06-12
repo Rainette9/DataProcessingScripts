@@ -427,3 +427,167 @@ def plot_bi_monthly_mean_H(fluxes_SFC, fluxes_16m, fluxes_26m, heights, variable
     plt.suptitle(f"HalfMonthly Mean {variable} with 25th and 75th Percentiles", fontsize=16, y=1.02)
     plt.savefig(f'./plots/BiMonthly_Mean_{variable}.png', bbox_inches='tight', dpi=300)
     plt.show()
+
+
+def plot_wind_speed_binned(fluxes_SFC, fluxes_16m, fluxes_26m, slowdata, heights, variable):
+    """
+    Plots the mean H with 25th and 75th percentiles for different heights, grouped into bins based on wind speed.
+
+    Parameters:
+        fluxes_SFC (pd.DataFrame): DataFrame containing SFC flux data.
+        fluxes_16m (pd.DataFrame): DataFrame containing 16m flux data.
+        fluxes_26m (pd.DataFrame): DataFrame containing 26m flux data.
+        slowdata (pd.DataFrame): DataFrame containing wind speed data.
+        heights (list): List of heights corresponding to SFC, 16m, and 26m.
+        variable (str): The variable to plot.
+    """
+    # Define wind speed bins (0-20 m/s in steps of 2.5 m/s)
+    bins = np.arange(0, 18, 3)
+    bin_labels = [f"{bins[i]}-{bins[i+1]} m/s" for i in range(len(bins) - 1)]
+    slowdata_mean = slowdata.resample('30min').mean()  # Resample slowdata to 30-minute intervals
+
+    slowdata_mean['Wind_Speed_Bin'] = pd.cut(slowdata_mean['WS1_Avg'], bins=bins, labels=bin_labels, include_lowest=True)
+
+    # Add wind speed bins to flux data
+    fluxes_SFC['Wind_Speed_Bin'] = slowdata_mean['Wind_Speed_Bin']
+    fluxes_16m['Wind_Speed_Bin'] = slowdata_mean['Wind_Speed_Bin']
+    fluxes_26m['Wind_Speed_Bin'] = slowdata_mean['Wind_Speed_Bin']
+
+    # Initialize the figure
+    fig, axes = plt.subplots(1, 5, figsize=(20, 8), sharey=True, sharex=True)
+    axes = axes.flatten()
+
+    # Loop through each wind speed bin and create subplots
+    for i, wind_bin in enumerate(bin_labels):
+        ax = axes[i]
+
+        # Filter data for the current wind speed bin
+        sfc_bin = fluxes_SFC[fluxes_SFC['Wind_Speed_Bin'] == wind_bin][variable]
+        m16_bin = fluxes_16m[fluxes_16m['Wind_Speed_Bin'] == wind_bin][variable]
+        m26_bin = fluxes_26m[fluxes_26m['Wind_Speed_Bin'] == wind_bin][variable]
+        # Calculate mean, 25th, and 75th percentiles
+        means = [
+            fluxes_SFC.median() if not sfc_bin.empty else np.nan,
+            fluxes_16m.median() if not m16_bin.empty else np.nan,
+            fluxes_26m.median() if not m26_bin.empty else np.nan
+        ]
+        percentiles_25 = [
+            fluxes_SFC.quantile(0.25) if not sfc_bin.empty else np.nan,
+            fluxes_16m.quantile(0.25) if not m16_bin.empty else np.nan,
+            fluxes_26m.quantile(0.25) if not m26_bin.empty else np.nan
+        ]
+        percentiles_75 = [
+            fluxes_SFC.quantile(0.75) if not sfc_bin.empty else np.nan,
+            fluxes_16m.quantile(0.75) if not m16_bin.empty else np.nan,
+            fluxes_26m.quantile(0.75) if not m26_bin.empty else np.nan
+        ]
+
+        # Ensure error bars are non-negative
+        lower_error = np.maximum(0, np.array(means) - np.array(percentiles_25))
+        upper_error = np.maximum(0, np.array(percentiles_75) - np.array(means))
+
+        # Plot the means with whiskers
+        ax.errorbar(
+            means, heights,
+            xerr=[lower_error, upper_error],
+            fmt='o-', capsize=5, label='H'
+        )
+
+        # Set titles and labels
+        ax.set_title(f"Wind Speed Bin: {wind_bin}", fontsize=10)
+        if i == 0:  # First column
+            ax.set_ylabel("Height (m)")
+        ax.set_xlabel(f"{variable} (Mean ± IQR)")
+        ax.grid(True)
+
+    # Adjust layout and show the plot
+    plt.tight_layout()
+    plt.suptitle(f"{variable} by Wind Speed Bins with 25th and 75th Percentiles", fontsize=16, y=1.02)
+    plt.savefig(f'./plots/wind_speed_binned_{variable}.png', bbox_inches='tight', dpi=300)
+    plt.show()
+
+def plot_filtered_wind_speed(fluxes_SFC, fluxes_16m, fluxes_26m, slowdata, heights, variable):
+    """
+    Plots two subplots for filtered cases:
+    1. When slowdata['PF_FC4'] > 0.1 and slowdata['WS1_Avg'] > 5.
+    2. When slowdata['PF_FC4'] == 0 and slowdata['WS1_Avg'] > 5.
+
+    Parameters:
+        fluxes_SFC (pd.DataFrame): DataFrame containing SFC flux data.
+        fluxes_16m (pd.DataFrame): DataFrame containing 16m flux data.
+        fluxes_26m (pd.DataFrame): DataFrame containing 26m flux data.
+        slowdata (pd.DataFrame): DataFrame containing slow data.
+        heights (list): List of heights corresponding to SFC, 16m, and 26m.
+        variable (str): The variable to plot.
+    """
+    # Filter data for the two cases
+    # Define wind speed bins (0-20 m/s in steps of 2.5 m/s)
+
+    # Case 1: Filter for PF_FC4 > 0.1 and WS1_Avg > 5
+    slowdata_mean = slowdata.resample('30min').mean()  # Resample slowdata to 30-minute intervals
+    case_BS_condition = (slowdata_mean['PF_FC4'] > 0.1) & (slowdata_mean['WS1_Avg'] > 5) & (slowdata_mean['WS1_Avg'] < 10)
+    case_noBS_condition = (slowdata_mean['PF_FC4'] <= 0.00001) & (slowdata_mean['WS1_Avg'] > 5) & (slowdata_mean['WS1_Avg'] < 10)
+
+    # Add bins to flux data based on conditions using .loc to avoid SettingWithCopyWarning
+    fluxes_SFC.loc[:, 'BS_bin'] = np.where(case_BS_condition, 'BS', np.where(case_noBS_condition, 'no_BS', 'else'))
+    fluxes_16m.loc[:, 'BS_bin'] = np.where(case_BS_condition, 'BS', np.where(case_noBS_condition, 'no_BS', 'else'))
+    fluxes_26m.loc[:, 'BS_bin'] = np.where(case_BS_condition, 'BS', np.where(case_noBS_condition, 'no_BS', 'else'))
+
+
+    # Initialize the figure
+    fig, axes = plt.subplots(1, 3, figsize=(10, 5), sharey=True, sharex=True)
+    axes = axes.flatten()
+    bin_labels = ['BS', 'no_BS', 'else']
+    # Loop through each wind speed bin and create subplots
+    for i, BS_bin in enumerate(bin_labels):
+        
+        ax = axes[i]
+
+        # Filter data for the current wind speed bin
+        sfc_bin = fluxes_SFC[fluxes_SFC['BS_bin'] == BS_bin][variable]
+        m16_bin = fluxes_16m[fluxes_16m['BS_bin'] == BS_bin][variable]
+        m26_bin = fluxes_26m[fluxes_26m['BS_bin'] == BS_bin][variable]
+        # Calculate mean, 25th, and 75th percentiles
+        means = [
+            resample_with_threshold(sfc_bin, '30min', False, '30min', 50).mean() if not sfc_bin.empty else np.nan,
+            resample_with_threshold(m16_bin, '30min', False, '30min', 50).mean() if not m16_bin.empty else np.nan,
+            resample_with_threshold(m26_bin, '30min', False, '30min', 50).mean() if not m26_bin.empty else np.nan
+        ]
+        percentiles_25 = [
+            resample_with_threshold(sfc_bin, '30min', False, '30min', 50).quantile(0.25) if not sfc_bin.empty else np.nan,
+            resample_with_threshold(m16_bin, '30min', False, '30min', 50).quantile(0.25) if not m16_bin.empty else np.nan,
+            resample_with_threshold(m26_bin, '30min', False, '30min', 50).quantile(0.25) if not m26_bin.empty else np.nan
+        ]
+        percentiles_75 = [
+            resample_with_threshold(sfc_bin, '30min', False, '30min', 50).quantile(0.75) if not sfc_bin.empty else np.nan,
+            resample_with_threshold(m16_bin, '30min', False, '30min', 50).quantile(0.75) if not m16_bin.empty else np.nan,
+            resample_with_threshold(m26_bin, '30min', False, '30min', 50).quantile(0.75) if not m26_bin.empty else np.nan
+        ]
+
+        # Ensure error bars are non-negative
+        lower_error = np.maximum(0, np.array(means) - np.array(percentiles_25))
+        # lower_error = np.array(percentiles_25)
+        upper_error = np.maximum(0, np.array(percentiles_75) - np.array(means))
+        # upper_error = np.array(percentiles_75)
+
+        # Plot the means with whiskers
+        ax.errorbar(
+            means, heights,
+            xerr=[lower_error, upper_error],
+            fmt='o-', capsize=5, label='H'
+        )
+
+        # Set titles and labels
+        ax.set_title(f"{BS_bin}", fontsize=10)
+        if i % 4 == 0:  # First column
+            ax.set_ylabel("Height (m)")
+        if i >= 4:  # Last row
+            ax.set_xlabel(f"{variable} (Mean ± IQR)")
+        ax.grid(True)
+
+    # Adjust layout and show the plot
+    plt.tight_layout()
+    plt.suptitle(f"{variable} by BS Bins with 25th and 75th Percentiles", fontsize=16, y=1.02)
+    plt.savefig(f'./plots/BS_binned_{variable}.png', bbox_inches='tight', dpi=300)
+    plt.show()
+    # return case_BS, case_noBS
