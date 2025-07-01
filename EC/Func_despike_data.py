@@ -317,92 +317,92 @@ def despike_fast_MAD(fastdata, slowdata, plim, sensor, calibration_coefficients=
 
 
 
-def despiking(datain, windowwidth=3000, maxsteps=10, breakcrit=1.05):
-    """
-    Despiking algorithm after Sigmund et al. (2022) based on the despiking algorith from Michis Julia scripts
-    """
-    print("Despiking...")
+# def despiking(datain, windowwidth=3000, maxsteps=10, breakcrit=1.05):
+#     """
+#     Despiking algorithm after Sigmund et al. (2022) based on the despiking algorith from Michis Julia scripts
+#     """
+#     print("Despiking...")
 
-    # Make windowwidth odd if it's even
-    if windowwidth % 2 == 0:
-        windowwidth += 1
+#     # Make windowwidth odd if it's even
+#     if windowwidth % 2 == 0:
+#         windowwidth += 1
 
-    # Criterion to compare to
-    criterion = 6 / 0.6745
+#     # Criterion to compare to
+#     criterion = 6 / 0.6745
 
-    # Replace missing values with NaN
-    datain = datain.replace({pd.NA: np.nan})
+#     # Replace missing values with NaN
+#     datain = datain.replace({pd.NA: np.nan})
 
-    # Initialize spike detection arrays
-    spike = np.zeros(len(datain), dtype=bool)
-    spikeirg = np.zeros(len(datain), dtype=bool)
-    tolook = np.ones(len(datain), dtype=bool)
+#     # Initialize spike detection arrays
+#     spike = np.zeros(len(datain), dtype=bool)
+#     spikeirg = np.zeros(len(datain), dtype=bool)
+#     tolook = np.ones(len(datain), dtype=bool)
 
-    # Columns to despike
-    if 'h2o' in datain.columns:
-        colstodespike = ['u', 'v', 'w', 'T', 'h2o']
-    else:
-        colstodespike = ['u', 'v', 'w', 'T']
+#     # Columns to despike
+#     if 'h2o' in datain.columns:
+#         colstodespike = ['u', 'v', 'w', 'T', 'h2o']
+#     else:
+#         colstodespike = ['u', 'v', 'w', 'T']
 
-    devtomedian = datain[colstodespike].copy()
+#     devtomedian = datain[colstodespike].copy()
 
-    nrsteps = 0
-    nrspikes = np.zeros(maxsteps, dtype=int)
-    nrspikesirg = np.zeros(maxsteps, dtype=int)
-    nrspikestot = np.zeros(maxsteps, dtype=int)
-    mad_data = np.zeros((len(datain), len(colstodespike)))
+#     nrsteps = 0
+#     nrspikes = np.zeros(maxsteps, dtype=int)
+#     nrspikesirg = np.zeros(maxsteps, dtype=int)
+#     nrspikestot = np.zeros(maxsteps, dtype=int)
+#     mad_data = np.zeros((len(datain), len(colstodespike)))
 
-    while nrsteps < maxsteps:
-        nrsteps += 1
-        for idx, col in enumerate(colstodespike):
-            tmp = median_filter(datain[col], size=windowwidth)
-            devtomedian[col] = np.abs(datain[col] - tmp)
-            mad_data[:, idx] = median_filter(devtomedian[col], size=windowwidth)
+#     while nrsteps < maxsteps:
+#         nrsteps += 1
+#         for idx, col in enumerate(colstodespike):
+#             tmp = median_filter(datain[col], size=windowwidth)
+#             devtomedian[col] = np.abs(datain[col] - tmp)
+#             mad_data[:, idx] = median_filter(devtomedian[col], size=windowwidth)
 
-        # Set previously detected spikes to equal the median
-        devtomedian.loc[spike, ['u', 'v', 'w', 'T']] = 0
-        if 'h2o' in colstodespike:
-            devtomedian.loc[spikeirg, 'h2o'] = 0
+#         # Set previously detected spikes to equal the median
+#         devtomedian.loc[spike, ['u', 'v', 'w', 'T']] = 0
+#         if 'h2o' in colstodespike:
+#             devtomedian.loc[spikeirg, 'h2o'] = 0
 
-        for jdx in range(1, len(devtomedian) - 1):
-            if tolook[jdx]:
-                leftside = 0
-                leftsideirg = 0
-                for jcol in range(len(colstodespike)):
-                    a = devtomedian.iloc[jdx, jcol] - np.nanmean([devtomedian.iloc[jdx-1, jcol], devtomedian.iloc[jdx+1, jcol]])
-                    if colstodespike[jcol] != 'h2o':
-                        leftside += a / mad_data[jdx, jcol]
-                    else:
-                        leftsideirg = a / mad_data[jdx, jcol]
-                if leftside > criterion:
-                    spike[jdx] = True
-                if leftsideirg > criterion:
-                    spikeirg[jdx] = True
+#         for jdx in range(1, len(devtomedian) - 1):
+#             if tolook[jdx]:
+#                 leftside = 0
+#                 leftsideirg = 0
+#                 for jcol in range(len(colstodespike)):
+#                     a = devtomedian.iloc[jdx, jcol] - np.nanmean([devtomedian.iloc[jdx-1, jcol], devtomedian.iloc[jdx+1, jcol]])
+#                     if colstodespike[jcol] != 'h2o':
+#                         leftside += a / mad_data[jdx, jcol]
+#                     else:
+#                         leftsideirg = a / mad_data[jdx, jcol]
+#                 if leftside > criterion:
+#                     spike[jdx] = True
+#                 if leftsideirg > criterion:
+#                     spikeirg[jdx] = True
 
-        nrspikes[nrsteps-1] = np.sum(spike)
-        nrspikesirg[nrsteps-1] = np.sum(spikeirg)
-        nrspikestot[nrsteps-1] = nrspikes[nrsteps-1] + nrspikesirg[nrsteps-1]
-        print(f"nrspikes[{nrsteps-1}] = {nrspikes[nrsteps-1]}")
-        print(f"nrspikesirg[{nrsteps-1}] = {nrspikesirg[nrsteps-1]}")
-        print(f"nrspikestot[{nrsteps-1}] = {nrspikestot[nrsteps-1]}")
+#         nrspikes[nrsteps-1] = np.sum(spike)
+#         nrspikesirg[nrsteps-1] = np.sum(spikeirg)
+#         nrspikestot[nrsteps-1] = nrspikes[nrsteps-1] + nrspikesirg[nrsteps-1]
+#         print(f"nrspikes[{nrsteps-1}] = {nrspikes[nrsteps-1]}")
+#         print(f"nrspikesirg[{nrsteps-1}] = {nrspikesirg[nrsteps-1]}")
+#         print(f"nrspikestot[{nrsteps-1}] = {nrspikestot[nrsteps-1]}")
 
-        # Only check neighboring to spikes in next step
-        spiketot = spike | spikeirg
-        spikeloc = np.where(spiketot)[0]
-        tolook[:] = False
-        tolook[spikeloc-1] = True
-        tolook[spikeloc+1] = True
+#         # Only check neighboring to spikes in next step
+#         spiketot = spike | spikeirg
+#         spikeloc = np.where(spiketot)[0]
+#         tolook[:] = False
+#         tolook[spikeloc-1] = True
+#         tolook[spikeloc+1] = True
 
-        devtomedian.loc[spike, ['u', 'v', 'w', 'T']] = 0
-        if np.sum(spikeirg) != 0:
-            devtomedian.loc[spikeirg, 'h2o'] = 0
-        datain.loc[spike, ['u', 'v', 'w', 'T']] = np.nan
-        if np.sum(spikeirg) != 0:
-            datain.loc[spikeirg, 'h2o'] = np.nan
-        if nrsteps > 1 and nrspikestot[nrsteps-1] / nrspikestot[nrsteps-2] < breakcrit:
-            break
+#         devtomedian.loc[spike, ['u', 'v', 'w', 'T']] = 0
+#         if np.sum(spikeirg) != 0:
+#             devtomedian.loc[spikeirg, 'h2o'] = 0
+#         datain.loc[spike, ['u', 'v', 'w', 'T']] = np.nan
+#         if np.sum(spikeirg) != 0:
+#             datain.loc[spikeirg, 'h2o'] = np.nan
+#         if nrsteps > 1 and nrspikestot[nrsteps-1] / nrspikestot[nrsteps-2] < breakcrit:
+#             break
 
-    return datain
+#     return datain
 
 
 # def clean_slowdata(slowdata):
