@@ -1,5 +1,17 @@
 {
-    "python.analysis.extraPaths": [
-        "./EC"
-    ]
+  "python.analysis.extraPaths": [
+    "./EC"
+  ]
+  // "git.enabled": false,
+  // "files.watcherExclude": {
+  //   "**/node_modules/**": true,
+  //   "**/dist/**": true,
+  //   "**/.git/**": true
+  // },
+  // "search.exclude": {
+  //   "**/node_modules": true,
+  //   "**/dist": true,
+  //   "**/.git": true
+  // },
+  // "git.autofetch": false
 }

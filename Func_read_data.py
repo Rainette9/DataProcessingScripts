@@ -216,7 +216,7 @@ def plot_slow_data(slowdata, sensor):
 
 
     fig.suptitle(f'{sensor} slowdata')
-    plt.savefig(f'./plots/{sensor}_slowdata.png')
+    # plt.savefig(f'./plots/{sensor}_slowdata.png')
         
     return fig, ax
 
