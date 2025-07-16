@@ -412,6 +412,30 @@ def save_despiked_data(fastdata, despiked_fastdata, output_folder, sensor):
             print(f"Data saved per hour in {file_path}")
 
 
+def Lsubl(temp):
+    """
+    Function for latent heat of sublimation (J/kg) depending on temperature (K)
+    
+    Parameters:
+        temp (array-like): Temperature in K
+    
+    Returns:
+        array-like: Latent heat of sublimation in J/kg
+    """
+    return (2834.1 - 0.29 * (temp-273.15) - 0.004 * (temp-273.15)**2) * 1e3
+
+def LvapEddyPro(temp):
+    """
+    Calculate latent heat of evaporation based on EddyPro formula.
+    
+    Parameters:
+        temp (array-like): Air temperature in K
+    
+    Returns:
+        array-like: Latent heat of evaporation in J/kg
+    """
+    return 1000 * (3147.5 - 2.37 * temp)
+
 
 def read_eddypro_data(folder, sensor, qc=False):
     # Read eddypro data from subfolders of the sensor folder
@@ -445,8 +469,14 @@ def read_eddypro_data(folder, sensor, qc=False):
     # eddypro_data = eddypro_data.iloc[1:]  # Remove the first row from the dataframe
     if qc==False:
         eddypro_data.drop(columns=['date', 'time', 'DOY', 'daytime', 'file_records', 'used_records'], inplace=True)  # Drop unnecessary columns
-    # print("Metadata extracted:", metadata.to_dict())
     eddypro_data= eddypro_data.apply(pd.to_numeric, errors='coerce')
+    if qc==False and 'LE' in eddypro_data.columns:
+        Ls_eddy = LvapEddyPro(eddypro_data['air_temperature'] )
+        # Latent heat of sublimation at air temperature (formula as in LES-LSM)
+        Ls = Lsubl(eddypro_data['air_temperature'] )
+        # Eddy latent heat flux using latent heat of sublimation instead of latent heat of evaporation
+        ql_ec = eddypro_data['LE'] * Ls / Ls_eddy
+        eddypro_data['LE']=ql_ec
     if 'H' in eddypro_data.columns:
         eddypro_data.loc[eddypro_data['qc_H']>=1, 'H'] = np.nan
         eddypro_data.loc[(eddypro_data['H'] > 200) | (eddypro_data['H'] < -400), 'H'] = np.nan
