@@ -33,7 +33,7 @@ def read_data(folder_path, fastorslow, sensor, start=None, end=None, plot_data=F
             files.sort()
             for file_name in files:
                 # Check if file_numbers is defined and filter files accordingly
-                if file_numbers is None or any('0'+str(nums) in file_name or 'T'+str(nums) in file_name for nums in file_numbers):
+                if file_numbers is None or any('_'+str(nums) in file_name or 'T'+str(nums) in file_name for nums in file_numbers):
                     # Check if the file name contains the sensor name and ends with .dat
 
                     if any(n in file_name for n in name) and file_name.endswith('.dat'):

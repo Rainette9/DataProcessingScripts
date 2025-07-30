@@ -55,15 +55,6 @@ def apply_plausibility_limits(fastdata, plim):
         fastdata_plaus.loc[in_out, 'Uz'] = np.nan
         fastdata_plaus.loc[in_out, 'Ts'] = np.nan
     
-
-
-    # # Check 'LI_Pres' values if 'LI_Pres' column exists
-    # if 'LI_Pres' in fastdata_plaus.columns:
-    #     # in_out = (fastdata_plaus['LI_Pres'] < plim['pres.low'].iloc[0]) | (fastdata_plaus['LI_Pres'] > plim['pres.up'].iloc[0])
-    #     in_out = (fastdata_plaus['LI_Pres'] < 0)
-    #     if in_out.any():
-    #         print(f"Plausibility limits: Discarding {in_out.sum()} 'pressure' records.")
-    #         fastdata_plaus.loc[in_out, 'LI_Pres'] = np.nan
     return fastdata_plaus
 
 
@@ -114,32 +105,10 @@ def h2o_calibration(calibration_coefficients, fastdata, slowdata):
     def polyapp(y, calibration_coefficients):
         if np.isnan(y):
             return np.nan
-        # global counter
-        # counter = counter+1; print(np.round(counter/total_items*100,3), end="\r")
         p = np.poly1d([calibration_coefficients['C'],calibration_coefficients['B'],calibration_coefficients['A'], y])
         # print(p.roots[0].real)
         return p.roots[0].real
-    # def polyapp(y, calibration_coefficients, bounds=(0, 0.002)):
-    #     if np.isnan(y):
-    #         print("NaN value encountered in polyapp")
-    #         return np.nan
-        
-    #     # Define the cubic polynomial function
-    #     def f(a):
-    #         return calibration_coefficients['A'] * a + \
-    #             calibration_coefficients['B'] * a**2 + \
-    #             calibration_coefficients['C'] * a**3 + y  # Note: y is already negated
 
-    #     try:
-    #         sol = root_scalar(f, bracket=bounds, method='brentq')
-    #         if sol.converged:
-    #             print(f"Root found for y={y} with bounds {bounds}: {sol.root}")
-    #             return sol.root
-    #         else:
-    #             print(f"Root finding failed for y={y} with bounds {bounds}")
-    #             return np.nan  # fallback if solver fails
-    #     except ValueError:
-    #         return np.nan  # happens when no root in bracket
 
     total_items = df_vap.shape[0]
     counter = 0
@@ -174,6 +143,66 @@ def h2o_calibration(calibration_coefficients, fastdata, slowdata):
     df_p['LI_H2Om_corr'] = df_p['LI_H2Om_corr'].round(1)
 
     df_p.drop(columns=['LI_a_raw','RH_a_raw', 'LI_y_fast', 'LI_a_fast', 'LI_a_raw_fast', 'LI_a_corr_fast', 'LI_a_norm_fast', 'LI_y_norm_fast'], inplace=True)
+
+
+    """
+    # -----------------------------------------  Correct drift of H2O concentration from IRGA code in R from Armin Sigmund (adapted from Fratini et al., 2014) -----------------------------------------
+    # Correct drift of H2O concentration from IRGA using low-frequency sensor as reference (adapted from Fratini et al., 2014) -----------------------------------------
+    if(correct.IRGA.drift){
+        if(all(is.na(df$LI_H2Om))){
+        print("Skip H2O drift correction because only NA values.")
+        } else{
+        print("Correcting high-frequency H2O records for instrument drift.")
+        # 10 min block median of IRGA H2O concentration (mmol/m^3) and air pressure (kPa)
+        in.h2o.p   = match(c("LI_H2Om","LI_Pres"), colnames(df))
+        d.IRGA.med = rollapply(df[,in.h2o.p], width = dt.agg/dt, FUN = median, na.rm=T, by = dt.agg/dt, align = "left", partial = T)
+        # normalize H2O with pressure (mmol m^-3 kPa^-1)
+        y.IRGA.med = coredata(d.IRGA.med$LI_H2Om / d.IRGA.med$LI_Pres)
+        # convert to normalized absorptance (1/kPa) using calibration function of LiCOR instrument
+        a.IRGA.med = sapply(-y.IRGA.med, function(i){
+            solve_poly3(z = c(i, cal.IRGA$A, cal.IRGA$B, cal.IRGA$C), lim = c(0, 0.002))
+        })
+        # convert to raw absorptance (1) by multiplying with pressure and dividing by span value
+        a.IRGA.med = a.IRGA.med * coredata(d.IRGA.med$LI_Pres) / cal.IRGA$H2O.span
+        
+        # reference H2O concentration based on T/RH probe (mmol m^-3)
+        h2o.ref     = window(dslow$h2o.z, start = t.i + dt.slow/2, end = t.i + delta + dt.slow/2)
+        # 10 min block median of reference
+        h2o.ref.med = rollapply(h2o.ref, width = dt.agg/dt.slow, FUN = median, na.rm=T, by = dt.agg/dt.slow, align = "left", partial = T)
+        # normalize H2O with pressure (mmol m^-3 kPa^-1)
+        y.ref.med = coredata(h2o.ref.med) / coredata(d.IRGA.med$LI_Pres)
+        # convert to normalized absorptance (1/kPa) using calibration function of LiCOR instrument
+        a.ref.med = sapply(-y.ref.med, function(i){
+            solve_poly3(z = c(i, cal.IRGA$A, cal.IRGA$B, cal.IRGA$C), lim = c(0, 0.002))
+        })
+        # convert to raw absorptance (1)
+        a.ref.med = a.ref.med * coredata(d.IRGA.med$LI_Pres) / cal.IRGA$H2O.span
+        
+        # correct high-frequency H2O records based on Eq. (10) in Fratini et al., 2014
+        for(i in 1:length(a.IRGA.med)){
+            # high-frequency H2O concentration (mmol m^-3) and pressure (kPa) in current time interval
+            d.fast = window(df[,in.h2o.p], start = t.i + (i-1)*dt.agg + dt/2, end = t.i + i*dt.agg + dt/2)
+            # normalize H2O with pressure (mmol m^-3 kPa^-1)
+            y.fast = coredata(d.fast$LI_H2Om / d.fast$LI_Pres)
+            # convert to normalized absorptance (1/kPa) using calibration function of LiCOR instrument
+            a.fast = sapply(-y.fast, function(i){
+            solve_poly3(z = c(i, cal.IRGA$A, cal.IRGA$B, cal.IRGA$C), lim = c(0, 0.002))
+            })
+            # convert to raw absorptance (1)
+            a.fast = a.fast * d.fast$LI_Pres / cal.IRGA$H2O.span
+            # correct raw absorptance for drift: the equation is derived by inserting the 10-min median absorptance values (IRGA and reference) in Eq. (10) of Fratini et al. (2014), solving for the 'zero offset' a_0, and inserting this expression for a_0 in the original Eq. (10), where the absorptances are instantaneous. 
+            a.fast = ( (1 - a.ref.med[i]) * a.fast - a.IRGA.med[i] + a.ref.med[i] ) / ( 1 - a.IRGA.med[i] )
+            # normalize with pressure and span value (1/kPa)
+            a.fast = a.fast / d.fast$LI_Pres * cal.IRGA$H2O.span
+            # convert back to normalized H2O concentration (mmol m^-3 kPa^-1) using the calibration function
+            y.fast = cal.IRGA$A * a.fast + cal.IRGA$B * a.fast^2 + cal.IRGA$C * a.fast^3
+            # update H2O concentration (mmol m^-3)
+            window(df$LI_H2Om, start = t.i + (i-1)*dt.agg + dt/2, end = t.i + i*dt.agg + dt/2) = y.fast * d.fast$LI_Pres
+        }
+        }
+    }
+    """
+
     return df_p, df_LF
 
 def plot_despiking_results(fastdata, fastdata_plaus, df_p, sensor, slowdata=None):
