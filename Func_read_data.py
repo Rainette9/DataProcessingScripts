@@ -36,8 +36,7 @@ def read_data(folder_path, fastorslow, sensor, start=None, end=None, plot_data=F
                 if file_numbers is None or any('_'+str(nums) in file_name or 'T'+str(nums) in file_name for nums in file_numbers):
                     # Check if the file name contains the sensor name and ends with .dat
 
-                    if any(n in file_name for n in name) and file_name.endswith('.dat'):
-                        print(file_name)
+                    if any(n in file_name for n in name) and (file_name.endswith('.dat') or file_name.endswith('.csv')):
                         file_path = os.path.join(root, file_name)
                         # Read the data from the file
                         if fastorslow == 'slow':
@@ -57,13 +56,37 @@ def read_data(folder_path, fastorslow, sensor, start=None, end=None, plot_data=F
                                         if f'wind_{number}' in wind_file and wind_file.endswith('.dat'):
                                             wind_file_path = os.path.join(root, wind_file)
                                             # Open and process the wind file
-                                            wind_data = pd.read_csv(wind_file_path, delimiter=',', header=1, low_memory=False)
+                                            try:
+                                                wind_data = pd.read_csv(wind_file_path, delimiter=',', header=1, low_memory=False)
+                                            except pd.errors.ParserError:
+                                                print(f"Parser error in file: {wind_file_path}")
+                                                # Try with error handling
+                                                wind_data = pd.read_csv(wind_file_path, delimiter=',', header=1, low_memory=False, 
+                                                                       on_bad_lines='skip', quoting=3)  # quoting=3 means no quoting
                                             wind_data = wind_data.drop([0, 1])
                                             wind_data['TIMESTAMP'] = pd.to_datetime(wind_data['TIMESTAMP'], format='mixed')
                                             data = data.join(wind_data, how='left', rsuffix='_wind')
 
                                             units_wind = pd.read_csv(wind_file_path, delimiter=',', header=1, nrows=1).iloc[0]
-                                            
+                                else:
+                                    for wind_file in files:
+                                        if f'wind' in wind_file:
+                                            print(f"Found wind file: {wind_file}")
+                                            if  wind_file.endswith('.dat') or wind_file.endswith('.csv'):
+                                                wind_file_path = os.path.join(root, wind_file)
+                                                # Open and process the wind file
+                                                try:
+                                                    wind_data = pd.read_csv(wind_file_path, delimiter=',', header=1, low_memory=False)
+                                                except pd.errors.ParserError:
+                                                    print(f"Parser error in file: {wind_file_path}")
+                                                    # Try with error handling
+                                                    wind_data = pd.read_csv(wind_file_path, delimiter=',', header=1, low_memory=False, 
+                                                                        on_bad_lines='skip', quoting=3)  # quoting=3 means no quoting
+                                                wind_data = wind_data.drop([0, 1])
+                                                wind_data['TIMESTAMP'] = pd.to_datetime(wind_data['TIMESTAMP'], format='mixed')
+                                                data = data.join(wind_data, how='left', rsuffix='_wind')
+
+                                                units_wind = pd.read_csv(wind_file_path, delimiter=',', header=1, nrows=1).iloc[0]                                            
                         if fastorslow == 'fast':
                             # if file_count <=1 or file_count >= 4:
                             # # if file_count >= 1:
@@ -340,7 +363,10 @@ def clean_slowdata(slowdata):
     """
     Function to clean slowdata by removing outliers and renaming columns.
     """
-    slowdata_cleaned = slowdata[['WD1', 'WD2', 'TA', 'RH', 'HS_Cor', 'HS_Qty', 'SFTempK', 'SWdown1', 'SWdown2', 'SWup1', 'SWup2', 'LWdown1', 'LWdown2', 'LWup1', 'LWup2', 'SWdn', 'PF_FC4', 'WS_FC4', 'WS1_Avg', 'WS2_Avg', 'WS1_Max', 'WS2_Max', 'WS1_Std', 'WS2_Std']].copy()
+    if 'SFTempK' in slowdata.columns:
+        slowdata_cleaned = slowdata[['WD1', 'WD2', 'TA', 'RH', 'HS_Cor', 'HS_Qty', 'SFTempK', 'SWdown1', 'SWdown2', 'SWup1', 'SWup2', 'LWdown1', 'LWdown2', 'LWup1', 'LWup2', 'SWdn', 'PF_FC4', 'WS_FC4', 'WS1_Avg', 'WS2_Avg', 'WS1_Max', 'WS2_Max', 'WS1_Std', 'WS2_Std']].copy()
+    else:
+        slowdata_cleaned = slowdata[['WD1', 'WD2', 'TA', 'RH', 'HS_Cor', 'HS_Qty', 'SWdown1', 'SWdown2', 'SWup1', 'SWup2', 'LWdown1', 'LWdown2', 'LWup1', 'LWup2', 'SWdn', 'PF_FC4', 'WS_FC4', 'WS1_Avg', 'WS2_Avg', 'WS1_Max', 'WS2_Max', 'WS1_Std', 'WS2_Std']].copy()
 
     # Add corresponding units from slowdata to attrs
     for column in slowdata_cleaned.columns:
@@ -360,8 +386,9 @@ def clean_slowdata(slowdata):
     slowdata_cleaned.loc[:, 'SWdown1'] = slowdata_cleaned['SWdown1'].interpolate(method='linear', limit_direction='both')
     slowdata_cleaned.loc[:,'SWdown2'] = slowdata_cleaned['SWdown2'].where(slowdata_cleaned['SWdown2'] > slowdata_cleaned['SWup2'], np.nan)
     slowdata_cleaned.loc[:, 'SWdown2'] = slowdata_cleaned['SWdown2'].interpolate(method='linear', limit_direction='both')
-    slowdata_cleaned.loc[:, 'SFTempK'] = slowdata_cleaned['SFTempK'].where(slowdata_cleaned['SFTempK'] <= 283, np.nan)
-    slowdata_cleaned.loc[:, 'SFTempK'] = slowdata_cleaned['SFTempK'].where(slowdata_cleaned['SFTempK'] >= 210, np.nan)
+    if 'SFTempK' in slowdata_cleaned.columns:
+        slowdata_cleaned.loc[:, 'SFTempK'] = slowdata_cleaned['SFTempK'].where(slowdata_cleaned['SFTempK'] <= 283, np.nan)
+        slowdata_cleaned.loc[:, 'SFTempK'] = slowdata_cleaned['SFTempK'].where(slowdata_cleaned['SFTempK'] >= 210, np.nan)
     slowdata_cleaned.loc[:, 'TA'] = slowdata_cleaned['TA'].where(slowdata_cleaned['TA'] >= -60, np.nan)
     slowdata_cleaned.loc[:, 'HS_Cor'] = slowdata_cleaned['HS_Cor'].where((slowdata_cleaned['HS_Qty'] >= 152) & (slowdata_cleaned['HS_Qty'] <= 210), np.nan)
     slowdata_cleaned.loc[:, 'HS_Cor'] = despike_snow_height(slowdata_cleaned, column_name='HS_Cor')
