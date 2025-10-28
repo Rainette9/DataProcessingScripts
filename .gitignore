@@ -1,0 +1,15 @@
+plots_specific_events/
+plots/
+plots_coherence/
+events/
+
+# Python cache and bytecode
+__pycache__/
+*.py[cod]
+*$py.class
+
+# VS Code config
+.vscode/
+
+# Jupyter checkpoints
+.ipynb_checkpoints/

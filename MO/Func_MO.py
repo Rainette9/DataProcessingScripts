@@ -5,7 +5,6 @@ import pandas as pd
 def compute_roughness_length(eddypro_data, eddypro_qc, z_wind):
     """This function computes the roughness length from the wind speed profile and ustar."""
     eddypro_data = eddypro_data.copy()
-    eddypro_data = eddypro_data
     k = 0.4
     u_mean = eddypro_data['wind_speed']
     u_star = eddypro_data['u*']
@@ -19,14 +18,121 @@ def compute_roughness_length(eddypro_data, eddypro_qc, z_wind):
     return z0, z0rolling
 
 
-# def compute_MO(slowdata, fastdata_or_z0):
-#     """This function computes the Monin-Obukhov turbulent fluxes"""
-#     if isinstance(fastdata_or_z0, pd.DataFrame):
-#         z0=compute_roughness_length(fastdata_or_z0)
-#     else:
-#         z0=fastdata_or_z0
 
-#     return SHF
+# Stable stratification ---------------------------------------------------
+
+def calc_psi_stable_stearns_weidner(zeta):
+    """
+    Universal functions for stable and neutral conditions according to Stearns and Weidner (1993).
+    
+    Parameters:
+        zeta (array-like): Stability parameter (must be >= 0)
+    
+    Returns:
+        dict: Dictionary with 'm' (momentum) and 's' (scalars/temperature) psi values
+    """
+    zeta = np.asarray(zeta)
+    if np.any(zeta < 0):
+        raise ValueError("zeta is not >= 0")
+    
+    # Momentum
+    y = (1 + 5 * zeta)**0.25
+    psi_m = np.log((1 + y)**2) + np.log(1 + y**2) - 2 * np.arctan(y) - 4/3 * y**3 + 0.8247
+    
+    # Temperature, scalars
+    y = (1 + 5 * zeta)**0.5
+    psi_s = np.log((1 + y)**2) - 2 * y - 2/3 * y**3 + 1.2804
+    
+    return {'m': psi_m, 's': psi_s}
+
+
+def calc_psi_stable_holtslag(zeta):
+    """
+    Universal functions for stable and neutral conditions according to Holtslag and DeBruin (1988).
+    
+    Parameters:
+        zeta (array-like): Stability parameter (must be >= 0)
+    
+    Returns:
+        dict: Dictionary with 'm' (momentum) and 's' (scalars) psi values
+    """
+    zeta = np.asarray(zeta)
+    if np.any(zeta < 0):
+        raise ValueError("zeta is not >= 0")
+    
+    # Same for momentum and scalars
+    psi_m = -(0.7 * zeta + 0.75 * (zeta - 14.28) * np.exp(-0.35 * zeta) + 10.71)
+    psi_s = psi_m
+    
+    return {'m': psi_m, 's': psi_s}
+
+
+# Unstable stratification -------------------------------------------------
+
+def calc_psi_unstable(zeta):
+    """
+    Universal functions after Businger et al., 1971 using the normalization after Hoegstroem, 1988.
+    
+    Parameters:
+        zeta (array-like): Stability parameter (should be < 0 for unstable conditions)
+    
+    Returns:
+        dict: Dictionary with 'm' (momentum) and 's' (scalars) psi values
+    """
+    zeta = np.asarray(zeta)
+    
+    # Momentum
+    x_term = (1 - 19.3 * zeta)**0.25
+    psi_m = (np.log(((1 + x_term**2) / 2) * ((1 + x_term) / 2)**2) - 
+             2 * np.arctan(x_term) + np.pi / 2)
+    
+    # Scalars
+    psi_s = 2 * np.log((1 + (0.95 * (1 - 11.6 * zeta)**0.5)**2) / 2)
+    
+    return {'m': psi_m, 's': psi_s}
+
+
+def calc_psi_unstable_paulson_stearns_weidner(zeta):
+    """
+    Universal functions of Paulson (original) for momentum and of Stearns and Weidner (1993) for scalars.
+    [The Stearns and Weidner (1993) formula for momentum is not correct, something (at least a sign 
+    of one term) seems to be missing in the paper.]
+    
+    Parameters:
+        zeta (array-like): Stability parameter (must be < 0)
+    
+    Returns:
+        dict: Dictionary with 'm' (momentum) and 's' (scalars/temperature) psi values
+    """
+    zeta = np.asarray(zeta)
+    if np.any(zeta >= 0):
+        raise ValueError("zeta is not < 0")
+    
+    # Momentum
+    x = (1 - 15 * zeta)**0.25
+    psi_m = (2 * np.log(0.5 * (1 + x)) + 
+             np.log(0.5 * (1 + x**2)) - 
+             2 * np.arctan(x) + 
+             0.5 * np.pi)
+    
+    # Temperature, scalars
+    x = (1 - 22.5 * zeta)**(1/3)
+    psi_s = (np.log((1 + x + x**2)**1.5) - 
+             np.sqrt(3) * np.arctan((1 + 2 * x) / np.sqrt(3)) + 
+             0.1659)
+    # Note: The paper is not clear about whether to first apply the power of 1.5 and then the 
+    # logarithm or first the logarithm and then the power of 1.5; however, the former makes more 
+    # sense because otherwise psi_s does not approach zero but -0.496 for zeta approaching zero.
+    
+    return {'m': psi_m, 's': psi_s}
+
+
+def compute_MO(slowdata, z0=0.002):
+    """This function computes the Monin-Obukhov turbulent fluxes"""
+    
+    SHF['']
+
+    return SHF
 
 # import pandas as pd
 # import numpy as np
