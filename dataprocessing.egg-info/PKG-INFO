@@ -1,0 +1,14 @@
+Metadata-Version: 2.1
+Name: dataprocessing
+Version: 0.1.0
+Summary: Antarctic turbulence and flux data processing toolkit
+Home-page: https://github.com/Rainette9/DataProcessingScripts
+Author: Rainette Engbers
+Author-email: rainette.engbers@epfl.ch
+Requires-Python: >=3.8
+Requires-Dist: numpy>=1.20.0
+Requires-Dist: pandas>=1.3.0
+Requires-Dist: matplotlib>=3.4.0
+Requires-Dist: scipy>=1.7.0
+Requires-Dist: cmcrameri>=1.4
+Requires-Dist: windrose>=1.6
