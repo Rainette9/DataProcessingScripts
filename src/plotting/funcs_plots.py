@@ -59,41 +59,6 @@ def find_consecutive_periods(slowdata, SPC,  threshold=1, duration='4h'):
 
 
 
-def resample_with_threshold(data, resample_time, interpolate=False, max_gap='1h', min_valid_percent=80):
-    """
-    Returns NaN if the percentage of valid values within the resample time is less than min_valid_percent.
-    Linearly interpolates gaps in the data only if the gaps are smaller than 1H.
-
-    Parameters:
-        data (pd.Series): The input data to be resampled.
-        resample_time (str): The resampling frequency (e.g., '10min', '1h').
-        min_valid_percent (float): Minimum percentage of valid values required to keep the resampled value.
-
-    Returns:
-        pd.Series: The resampled data with insufficient valid data set to NaN.
-    """
-    if interpolate == True:
-        # Calculate the data's frequency in seconds
-        freq = (data.index[1] - data.index[0]).total_seconds()
-        # Convert the max_gap to seconds
-        max_gap_seconds = pd.to_timedelta(max_gap).total_seconds()
-        # Calculate the limit as the number of consecutive NaNs within the max_gap
-        limit = int(max_gap_seconds / freq)
-        data = data.interpolate(limit=limit, limit_direction='both', limit_area='inside')
-    # Resample the data
-    resampled_data = data.resample(resample_time).mean()
-    # Count the number of valid (non-NaN) values in each resample period
-    valid_counts = data.resample(resample_time).count()
-    # Calculate the total number of values in each resample period
-    total_counts = data.resample(resample_time).size()
-    # Calculate the percentage of valid values
-    valid_percent = (valid_counts / total_counts) * 100
-    # Apply the threshold and valid percentage filter
-    filtered_data = resampled_data.where((valid_percent >= min_valid_percent))
-    # Interpolate gaps smaller than 1H
-
-    return filtered_data
-
 def plot_SFC_slowdata_and_fluxes(slowdata, fluxes_SFC, fluxes_16m, fluxes_26m, sensor, start, end, SPC=None, resample_time='10min', interpolate=False, interp_time='1h'):
 
     consecutive_periods = find_consecutive_periods(slowdata, SPC) ### find 3h hour consecutive BS periods

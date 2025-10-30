@@ -5,4 +5,4 @@ __version__ = "0.1.0"
 
 # Make commonly used functions available at package level
 from .ec.func_read_data import read_eddypro_data, read_data, resample_with_threshold
-from .ec.constants import *
+from .utils.constants import *

@@ -127,12 +127,233 @@ def calc_psi_unstable_paulson_stearns_weidner(zeta):
     return {'m': psi_m, 's': psi_s}
 
 
+def calc_bulk_kinemat_flux(u_up, u_low, scalar_up, scalar_low, coeff):
+    """
+    Calculate bulk kinematic flux.
+    
+    Parameters:
+        u_up (float): Wind speed at upper height (m/s)
+        u_low (float): Wind speed at lower height (m/s)
+        scalar_up (float): Scalar value at upper height
+        scalar_low (float): Scalar value at lower height
+        coeff (float): Bulk transfer coefficient
+    
+    Returns:
+        float: Kinematic flux
+    """
+    return -1 * coeff * (u_up - u_low) * (scalar_up - scalar_low)
+
+
+def calc_coeff_scalar(psi_m, psi_s, z_u_up, z_u_low, z_scalar_up, z_scalar_low):
+    """
+    Calculate bulk transfer coefficient for scalars.
+    
+    Parameters:
+        psi_m (float): Integrated universal function for momentum
+        psi_s (float): Integrated universal function for scalars
+        z_u_up (float): Upper height for wind measurement (m)
+        z_u_low (float): Lower height for wind (roughness length for momentum, m)
+        z_scalar_up (float): Upper height for scalar measurement (m)
+        z_scalar_low (float): Lower height for scalar (roughness length for scalar, m)
+    
+    Returns:
+        float: Bulk transfer coefficient
+    """
+    return 0.4**2 / ((np.log(z_u_up/z_u_low) - psi_m) * (np.log(z_scalar_up/z_scalar_low) - psi_s))
+
+
+def calc_fluxes_iter(z_ref_vw=None, z_ref_scalar=None, rough_len_m=None, rough_len_tq_Andreas=False,
+                     rough_len_t=None, rough_len_q=None, vw_ref=None, T_ref=None, qv_ref=None,
+                     T_surf=None, qv_surf=None, FUN_psi_stable=None, FUN_psi_unstable=None,
+                     prescribe_ustar=None):
+    """
+    Iterative flux calculation using Monin-Obukhov similarity theory.
+    
+    Parameters:
+        z_ref_vw (float): Reference height for wind speed (m), defaults to z_ref_scalar
+        z_ref_scalar (float): Reference height for temperature and humidity (m)
+        rough_len_m (float): Roughness length for momentum (m)
+        rough_len_tq_Andreas (bool): Use Andreas (1987) parametrization for scalar roughness lengths
+        rough_len_t (float): Roughness length for temperature (m), defaults to 0.1*rough_len_m
+        rough_len_q (float): Roughness length for humidity (m), defaults to 0.1*rough_len_m
+        vw_ref (float): Wind speed at reference height (m/s)
+        T_ref (float): Temperature at reference height (K)
+        qv_ref (float): Specific humidity at reference height (kg/kg)
+        T_surf (float): Surface temperature (K)
+        qv_surf (float): Surface specific humidity (kg/kg)
+        FUN_psi_stable (callable): Function for stable universal functions, defaults to calc_psi_stable_holtslag
+        FUN_psi_unstable (callable): Function for unstable universal functions, defaults to calc_psi_unstable_paulson_stearns_weidner
+        prescribe_ustar (float or None): Prescribed friction velocity (m/s), or None to calculate
+    
+    Returns:
+        dict: Dictionary with u_star, Tw_flux, qw_flux, zeta, psi_m, psi_s, converged, and optionally Re_star
+    """
+    # Set defaults
+    if z_ref_vw is None:
+        z_ref_vw = z_ref_scalar
+    if z_ref_scalar is None:
+        z_ref_scalar = z_ref_vw
+    if rough_len_t is None:
+        rough_len_t = 0.1 * rough_len_m
+    if rough_len_q is None:
+        rough_len_q = 0.1 * rough_len_m
+    if FUN_psi_stable is None:
+        FUN_psi_stable = calc_psi_stable_holtslag
+    if FUN_psi_unstable is None:
+        FUN_psi_unstable = calc_psi_unstable_paulson_stearns_weidner
+    
+    # Constants
+    nu_air = 1.24e-05  # kinematic viscosity of air
+    kappa = 0.4  # von Karman constant
+    g = 9.81  # gravitational acceleration
+    
+    # Check if iteration is needed
+    iterate = True
+    if prescribe_ustar is None or not np.isfinite(prescribe_ustar):
+        if vw_ref == 0:
+            return {
+                'u_star': 0.0,
+                'Tw_flux': 0.0,
+                'qw_flux': 0.0,
+                'zeta': np.nan,
+                'psi_m': np.nan,
+                'psi_s': np.nan,
+                'converged': np.nan,
+                'Re_star': np.nan
+            }
+    
+    # Iterative calculation
+    Re_star = np.nan
+    converged = 0
+    
+    for i in range(100):
+        if i == 0:
+            # Start with neutral conditions
+            zeta = 1e-6
+        else:
+            zeta = zeta_new
+        
+        # Stable or neutral conditions
+        if zeta >= 0:
+            psi = FUN_psi_stable(zeta)
+        else:  # Unstable conditions
+            psi = FUN_psi_unstable(zeta)
+        
+        # Friction velocity
+        if prescribe_ustar is not None and np.isfinite(prescribe_ustar):
+            u_star = prescribe_ustar
+        else:
+            u_star = kappa * vw_ref / (np.log(z_ref_vw / rough_len_m) - psi['m'])
+        
+        # Scalar roughness lengths using Andreas parametrization (if requested)
+        if rough_len_tq_Andreas:
+            Re_star = u_star * rough_len_m / nu_air
+            # Note: calc_Andreas_model function would need to be implemented
+            # rough_len_t = rough_len_m * calc_Andreas_model(Re_star, "temperature")
+            # rough_len_q = rough_len_m * calc_Andreas_model(Re_star, "humidity")
+            pass  # Placeholder for Andreas parametrization
+        
+        # Temperature flux
+        if prescribe_ustar is not None and np.isfinite(prescribe_ustar):
+            Tw_flux = -kappa * u_star * (T_ref - T_surf) / (np.log(z_ref_scalar/rough_len_t) - psi['s'])
+        else:
+            c_h = calc_coeff_scalar(psi['m'], psi['s'], z_ref_vw, rough_len_m, z_ref_scalar, rough_len_t)
+            Tw_flux = calc_bulk_kinemat_flux(vw_ref, 0, T_ref, T_surf, c_h)
+        
+        # Stability parameter z/L
+        zeta_new = -z_ref_scalar * kappa * (g / T_surf) * Tw_flux / u_star**3
+        
+        # Check convergence
+        if np.isfinite(zeta) and np.isfinite(zeta_new):
+            if abs(zeta_new - zeta) <= 0.001 * abs(zeta):
+                converged = 1
+                break
+        else:
+            converged = 0
+            break
+    
+    # If not converged, assume neutral conditions
+    if converged == 0:
+        zeta = 0
+        psi = {'m': 0, 's': 0}
+        if prescribe_ustar is not None and np.isfinite(prescribe_ustar):
+            Tw_flux = -kappa * u_star * (T_ref - T_surf) / np.log(z_ref_scalar/rough_len_t)
+        else:
+            u_star = kappa * vw_ref / np.log(z_ref_vw / rough_len_m)
+            c_h = calc_coeff_scalar(psi['m'], psi['s'], z_ref_vw, rough_len_m, z_ref_scalar, rough_len_t)
+            Tw_flux = calc_bulk_kinemat_flux(vw_ref, 0, T_ref, T_surf, c_h)
+    
+    # Limit zeta to [-10, 10]
+    if abs(zeta) > 10:
+        if zeta > 10:
+            zeta = 10
+            psi = FUN_psi_stable(zeta)
+        if zeta < -10:
+            zeta = -10
+            psi = FUN_psi_unstable(zeta)
+        
+        if prescribe_ustar is None or not np.isfinite(prescribe_ustar):
+            u_star = kappa * vw_ref / (np.log(z_ref_vw / rough_len_m) - psi['m'])
+        
+        if rough_len_tq_Andreas:
+            Re_star = u_star * rough_len_m / nu_air
+            # rough_len_t = rough_len_m * calc_Andreas_model(Re_star, "temperature")
+            # rough_len_q = rough_len_m * calc_Andreas_model(Re_star, "humidity")
+        
+        if prescribe_ustar is not None and np.isfinite(prescribe_ustar):
+            Tw_flux = -kappa * u_star * (T_ref - T_surf) / (np.log(z_ref_scalar/rough_len_t) - psi['s'])
+        else:
+            c_h = calc_coeff_scalar(psi['m'], psi['s'], z_ref_vw, rough_len_m, z_ref_scalar, rough_len_t)
+            Tw_flux = calc_bulk_kinemat_flux(vw_ref, 0, T_ref, T_surf, c_h)
+    
+    # Latent heat flux
+    if prescribe_ustar is not None and np.isfinite(prescribe_ustar):
+        qw_flux = -kappa * u_star * (qv_ref - qv_surf) / (np.log(z_ref_scalar/rough_len_q) - psi['s'])
+    else:
+        c_q = calc_coeff_scalar(psi['m'], psi['s'], z_ref_vw, rough_len_m, z_ref_scalar, rough_len_q)
+        qw_flux = calc_bulk_kinemat_flux(vw_ref, 0, qv_ref, qv_surf, c_q)
+    
+    result = {
+        'u_star': u_star,
+        'Tw_flux': Tw_flux,
+        'qw_flux': qw_flux,
+        'zeta': zeta,
+        'psi_m': psi['m'],
+        'psi_s': psi['s'],
+        'converged': converged
+    }
+    
+    if rough_len_tq_Andreas:
+        result['Re_star'] = Re_star
+    
+    return result
+
+
+def calc_MO_profile(z_ref, x_ref, x_star, psi, z_out):
+    """
+    Calculate vertical profile using Monin-Obukhov similarity theory.
+    
+    Parameters:
+        z_ref (float): Reference height (m)
+        x_ref (float): Quantity of interest at reference height
+        x_star (float): Vertical flux divided by friction velocity (same unit as x_ref)
+        psi (float or array): Integrated universal function (stability correction)
+        z_out (float or array): Output heights (m)
+    
+    Returns:
+        float or array: Profile values at z_out
+    """
+    return x_ref + x_star / 0.4 * (np.log(z_out / z_ref) - psi)
+
+
 def compute_MO(slowdata, z0=0.002):
     """This function computes the Monin-Obukhov turbulent fluxes"""
     
-    SHF['']
+    # Placeholder - needs implementation
+    SHF = None
+    LHF = None
 
-    return SHF
+    return SHF, LHF
 
 # import pandas as pd
 # import numpy as np

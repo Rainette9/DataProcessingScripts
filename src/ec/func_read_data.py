@@ -5,6 +5,7 @@ import os
 import re
 import glob
 
+from utils.constants import *
 
 
 def read_data(folder_path, fastorslow, sensor, start=None, end=None, plot_data=False, file_numbers=None):
@@ -243,27 +244,6 @@ def plot_slow_data(slowdata, sensor):
         
     return fig, ax
 
-def vapor_pressure_ice_MK2005(T):
-    T_k = T + 273.15
-    ln_esi = (-9.09718 * ((273.16 / T_k) - 1)
-              - 3.56654 * np.log10(273.16 / T_k)
-              + 0.876793 * (1 - (T_k / 273.16))
-              + np.log10(6.1071))
-    return 10**ln_esi * 100  # Pa
-
-def vapor_pressure_liquid_MK2005(T):
-    T_k = T + 273.15
-    return np.exp(54.842763 - 6763.22 / T_k - 4.210 * np.log(T_k)
-                  + 0.000367 * T_k
-                  + np.tanh(0.0415 * (T_k - 218.8)) *
-                  (53.878 - 1331.22 / T_k - 9.44523 * np.log(T_k)
-                   + 0.014025 * T_k))  # Pa
-
-def convert_RH_liquid_to_ice(RH_liquid, T):
-    e_s_liquid = vapor_pressure_liquid_MK2005(T)
-    e_s_ice = vapor_pressure_ice_MK2005(T)
-    RH_ice = RH_liquid * (e_s_liquid / e_s_ice)
-    return RH_ice
 
 def plot_SFC_slowdata(slowdata, sensor, start, end):
 
@@ -307,7 +287,7 @@ def plot_SFC_slowdata(slowdata, sensor, start, end):
     ax[6].set_ylabel('Flowcapt [g/m2/s]')
     fig.suptitle(f'{sensor} slowdata {start} - {end}', y=0.92, fontsize=16)
     # plt.tight_layout()
-    plt.savefig(f'./plots/{sensor}_{start}_slowdata.png', bbox_inches='tight')
+    plt.savefig(f'../plots/{sensor}_{start}_slowdata.png', bbox_inches='tight')
         
     return fig, ax
 
