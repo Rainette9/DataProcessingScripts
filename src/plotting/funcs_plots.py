@@ -5,7 +5,7 @@ import sys
 import os
 import matplotlib.dates as mdates
 from ec import func_read_data
-from ec.func_read_data import convert_RH_liquid_to_ice
+from utils.utils import convert_RH_liquid_to_ice, resample_with_threshold
 
 
 

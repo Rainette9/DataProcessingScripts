@@ -1,7 +1,6 @@
 """
 Eddy Covariance processing module
 """
-from ..utils.constants import *
 from .func_read_data import *
 from .func_despike_data import *
 from .sensor_info import *

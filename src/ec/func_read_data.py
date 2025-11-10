@@ -6,6 +6,7 @@ import re
 import glob
 
 from utils.constants import *
+from utils.utils import convert_RH_liquid_to_ice
 
 
 def read_data(folder_path, fastorslow, sensor, start=None, end=None, plot_data=False, file_numbers=None):

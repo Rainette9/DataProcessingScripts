@@ -97,17 +97,11 @@ def completemrd(data, col1, col2, M, shift, normed=False, plot=False):
                     normfct = np.sum(mrd_data_tmp[:11]) / fx[startidx + (endidx - startidx) // 2]
                     mrd_data_tmp /= normfct
                 
-                # data_cont_mrd = np.concatenate((data_cont_mrd, mrd_data_tmp[:, np.newaxis]), axis=1)
                 data_cont_mrd.append(mrd_data_tmp)
-                # data_cont_mrd = np.concatenate((data_cont_mrd, mrd_data_tmp), axis=1)
                 # print(mrd_data_tmp)
                 nrblocks += 1
                 # print(gapidx, '<', len(gaps), 'and', endidx, '<=', gaps.iloc[gapidx, 0])
-            # else:
-            #     startidx = gaps[gapidx][0] + 1 - shift
-            #     endidx = startidx + (2**M) - 1
-            #     gapidx += 1
-            #     print('else')
+
             else:
                 startidx = gaps.iloc[gapidx]['idx_before_gap'] + 1 - shift
                 endidx = startidx + (2**M) - 1
@@ -127,7 +121,6 @@ def completemrd(data, col1, col2, M, shift, normed=False, plot=False):
                         time_middle.append(time_middle[-1] + timeshift)
                     print('concatenating')
                     # print(data_cont_mrd, np.full((M, 1), np.nan))
-                    # data_cont_mrd = np.concatenate((data_cont_mrd, np.full((M, 1), np.nan)), axis=1)
                     data_cont_mrd = np.concatenate((data_cont_mrd, np.full((M, 1), np.nan)), axis=1)
                     nrblocks += 1
                 
