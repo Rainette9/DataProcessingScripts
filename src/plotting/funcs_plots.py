@@ -11,7 +11,7 @@ from utils.utils import convert_RH_liquid_to_ice, resample_with_threshold
 
 
 
-def find_consecutive_periods(slowdata, SPC,  threshold=1, duration='4h'):
+def find_consecutive_periods(slowdata, SPC,  threshold=1, duration='4h', noBS=False):
     """
     Finds periods where both slowdata['PF_FC4'] and SPC['Corrected Mass Flux(kg/m^2/s)']
     are greater than a threshold for consecutive hours, while removing occurrences where
@@ -27,18 +27,26 @@ def find_consecutive_periods(slowdata, SPC,  threshold=1, duration='4h'):
         list: A list of tuples containing the start and end times of consecutive periods.
     """
     # Remove occurrences where 'HS_Cor' decreases by more than 1 per hour
-    hs_cor_diff = slowdata['HS_Cor'].resample('1h').mean().diff()
-    slowdata = slowdata[hs_cor_diff.reindex(slowdata.index, method='ffill') >= -0.02/60] ### 2cm per hour
-    slowdata =slowdata[slowdata['WS1_Avg']>3]
-    # Create masks for values greater than the threshold
-    mask_slowdata = slowdata['PF_FC4'] > threshold
-    # mask_SPC = SPC['Corrected Mass Flux(kg/m^2/s)']  >= threshold /1000
-    mask_SPC = SPC['Corrected Mass Flux(kg/m^2/s)']  >= 0
-    # Combine masks to find periods where both conditions are met
-    combined_mask = mask_slowdata & mask_SPC
-    # Resample to hourly frequency and check for consecutive periods
-    resampled_mask = combined_mask.resample('3h').mean() > 0
-
+    if noBS == False:
+        # Find periods WITH blowing snow (values above threshold)
+        hs_cor_diff = slowdata['HS_Cor'].resample('1h').mean().diff()
+        slowdata = slowdata[hs_cor_diff.reindex(slowdata.index, method='ffill') >= -0.02/60] ### 2cm per hour
+        slowdata = slowdata[slowdata['WS1_Avg'] > 3]
+        # Create masks for values greater than the threshold
+        mask_slowdata = slowdata['PF_FC4'] > threshold
+        # mask_SPC = SPC['Corrected Mass Flux(kg/m^2/s)']  >= threshold /1000
+        mask_SPC = SPC['Corrected Mass Flux(kg/m^2/s)']  >= 0
+        # Combine masks to find periods where both conditions are met
+        combined_mask = mask_slowdata & mask_SPC
+        resampled_mask = combined_mask.resample(duration).mean() > 0.5  # At least some values meet criteria
+    else:  # noBS == True
+        # Find periods WITHOUT blowing snow (values consistently below threshold)
+        mask_slowdata = slowdata['PF_FC4'] < threshold
+        mask_SPC = SPC['Corrected Mass Flux(kg/m^2/s)'] <= threshold / 1000
+        # Combine masks to find periods where both conditions are met
+        combined_mask = mask_slowdata & mask_SPC
+        # For no-BS periods, we want ALL values to be below threshold (mean close to 1.0)
+        resampled_mask = combined_mask.resample(duration).mean() > 0.98  # 90% of values must meet criteria
     # Identify consecutive periods
     consecutive_periods = resampled_mask.astype(int).diff().fillna(0)
     start_times = resampled_mask[consecutive_periods == 1].index
