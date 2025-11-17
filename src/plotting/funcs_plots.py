@@ -38,7 +38,7 @@ def find_consecutive_periods(slowdata, SPC,  threshold=1, duration='4h', noBS=Fa
         mask_SPC = SPC['Corrected Mass Flux(kg/m^2/s)']  >= 0
         # Combine masks to find periods where both conditions are met
         combined_mask = mask_slowdata & mask_SPC
-        resampled_mask = combined_mask.resample(duration).mean() > 0.5  # At least some values meet criteria
+        resampled_mask = combined_mask.resample(duration).mean() > 0.7  # At least some values meet criteria
     else:  # noBS == True
         # Find periods WITHOUT blowing snow (values consistently below threshold)
         mask_slowdata = slowdata['PF_FC4'] < threshold
@@ -184,7 +184,7 @@ def plot_SFC_slowdata_and_fluxes(slowdata, fluxes_SFC, fluxes_16m, fluxes_26m, s
 
 
     fig.suptitle(f'{resample_time} resampled {start} - {end}', y=0.92, fontsize=16)
-    plt.savefig(f'./plots_months/{sensor}_{start}_slowdata_and_fluxes.png', bbox_inches='tight')
+    # plt.savefig(f'./plots_months/{sensor}_{start}_slowdata_and_fluxes.png', bbox_inches='tight')
     return fig, ax
 
 def check_log_profile(slowdata, fluxes_SFC, fluxes_16m, fluxes_26m, start, end, heights=[0,1.5,1.9,3.5,16,26], log=False):
