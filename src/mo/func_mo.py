@@ -312,6 +312,13 @@ def calc_fluxes_iter(z_ref_vw=None, z_ref_scalar=None, rough_len_m=None, rough_l
     else:
         c_q = calc_coeff_scalar(psi['m'], psi['s'], z_ref_vw, rough_len_m, z_ref_scalar, rough_len_q)
         qw_flux = calc_bulk_kinemat_flux(vw_ref, 0, qv_ref, qv_surf, c_q)
+
+    # # Sensible heat flux
+    # if prescribe_ustar is not None and np.isfinite(prescribe_ustar):
+    #     Tw_flux = -kappa * u_star * (T_ref - T_surf) / (np.log(z_ref_scalar/rough_len_t) - psi['s'])
+    # else:
+    #     c_q = calc_coeff_scalar(psi['m'], psi['s'], z_ref_vw, rough_len_m, z_ref_scalar, rough_len_t)
+    #     qw_flux = calc_bulk_kinemat_flux(vw_ref, 0, T_ref, T_surf, c_q)
     
     result = {
         'u_star': u_star,

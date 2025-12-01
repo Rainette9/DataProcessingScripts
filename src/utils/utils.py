@@ -1,7 +1,7 @@
 import numpy as np
 import pandas as pd
 
-from .constants import epsilon
+from .constants import epsilon, R_dry_air, R_w
 
 
 def resample_with_threshold(data, resample_time, interpolate=False, max_gap='1h', min_valid_percent=80):
@@ -100,3 +100,119 @@ def RH_to_specific_humidity(RH, T, P):
     
     return q
 
+def calc_es(temp, ice=False):
+    """
+    Calculate saturation vapor pressure [Pa]
+    
+    Approximation of Clausius-Clapeyron equation, semiempirical formula as used in 
+    Lehning et al., 2002: A physical SNOWPACK model for the Swiss avalanche.
+    
+    Parameters:
+    -----------
+    temp : float or array-like
+        Air temperature [degC]
+    ice : bool, optional
+        If True, calculate for ice (sublimation), otherwise for water (evaporation)
+        Default is False
+    
+    Returns:
+    --------
+    float or ndarray
+        Saturation vapor pressure [Pa]
+    """
+    # Triple point pressure [Pa]
+    p_t = 610.5
+    # Triple point temperature [K]
+    T_t = 273.16
+    # Specific gas constant for water vapor [J kg-1 K-1]
+    R_v = 461.9
+    
+    # Latent heat of sublimation (or evaporation)
+    if ice:
+        # Formula as in LES-LSM [J kg-1]
+        L = (2834.1 - 0.29 * temp - 0.004 * temp**2) * 1e3
+    else:
+        # From Foken: Micrometeorology, 2008 [J kg-1]
+        L = (2.501 - 0.00237 * temp) * 1e6
+    
+    # Convert temperature from degC to K
+    Tmp = temp + 273.15
+    
+    # Calculate saturation vapor pressure
+    # (equivalent to a common approximation of the Clausius-Clapeyron equation)
+    es = p_t * np.exp(L * (Tmp - T_t) / (R_v * T_t * Tmp))  # [Pa]
+    
+    return es
+
+
+def Lsubl(temp):
+    """
+    Calculate latent heat of sublimation [J kg^-1]
+    
+    Formula as in LES-LSM
+    
+    Parameters:
+    -----------
+    temp : float or array-like
+        Temperature [degC]
+    
+    Returns:
+    --------
+    float or ndarray
+        Latent heat of sublimation [J kg^-1]
+    """
+    return (2834.1 - 0.29 * temp - 0.004 * temp**2) * 1e3
+
+
+def calc_qv_surface(T_surf, pressure, ice=True):
+    """
+    Calculate specific humidity at the surface [kg kg^-1]
+    
+    This calculation assumes saturation at the surface and follows the approach
+    from the R code provided, which is equivalent to q = 0.622 * e / (p - 0.378*e)
+    
+    Parameters:
+    -----------
+    T_surf : float or array-like
+        Surface temperature [degC]
+    pressure : float or array-like
+        Atmospheric pressure [Pa]
+    ice : bool, optional
+        If True, calculate for ice surface (default), otherwise for water
+    
+    Returns:
+    --------
+    dict with keys:
+        'qv_surf' : float or ndarray - Specific humidity at surface [kg kg^-1]
+        'rho_air_surf' : float or ndarray - Air density at surface [kg m^-3]
+        'Ls' : float or ndarray - Latent heat of sublimation [J kg^-1]
+    """
+    # Convert to numpy arrays for vectorized operations
+    T_surf = np.asarray(T_surf)
+    pressure = np.asarray(pressure)
+    
+    # (Saturation) vapor pressure at surface [Pa]
+    e_surf = calc_es(temp=T_surf, ice=ice)
+    
+    # Dry air density (kg m^-3) at surface
+    rho_dry_air_surf = (pressure - e_surf) / (R_dry_air * (T_surf + 273.15))
+    
+    # Water vapor partial density (kg m^-3) at surface
+    rho_h2o_surf = e_surf / (R_w * (T_surf + 273.15))
+    
+    # Air density (kg m^-3) at surface
+    rho_air_surf = rho_dry_air_surf + rho_h2o_surf
+    
+    # Specific humidity (kg kg^-1) at surface
+    # The calculation here is equivalent to the formula q = 0.622 * e / (p - 0.378*e)
+    qv_surf = rho_h2o_surf / rho_air_surf
+    
+    # Latent heat of sublimation (J kg^-1) at surface temperature
+    # Formula as in LES-LSM
+    Ls = Lsubl(temp=T_surf)
+    
+    return {
+        'qv_surf': qv_surf,
+        'rho_air_surf': rho_air_surf,
+        'Ls': Ls
+    }
