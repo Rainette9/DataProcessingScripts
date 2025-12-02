@@ -68,6 +68,11 @@ def find_consecutive_periods(slowdata, SPC,  threshold=1, duration='4h', noBS=Fa
 
 
 def plot_SFC_slowdata_and_fluxes(slowdata, fluxes_SFC, fluxes_16m, fluxes_26m, sensor, start, end, SPC=None, resample_time='10min', interpolate=False, interp_time='1h'):
+    """
+    Plots slowdata and fluxes for a given sensor over a specified time range.
+
+        
+    """
 
     consecutive_periods = find_consecutive_periods(slowdata, SPC) ### find 3h hour consecutive BS periods
     filtered_periods = [period for period in consecutive_periods if period[0] >= pd.Timestamp(start) and period[1] <= pd.Timestamp(end)]

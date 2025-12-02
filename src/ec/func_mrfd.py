@@ -64,9 +64,16 @@ def completemrd(data, col1, col2, M, shift, normed=False, plot=False):
     timeshift = shift * timestep
     
     gaps = detect_gaps(data, timedelta(seconds=10))
-    gaps = pd.concat([gaps, pd.DataFrame({'idx_before_gap': [len(data)], 
-                                          'time_before_gap': [data.index[-1] + timedelta(seconds=1)], 
-                                          'gaplength': [timedelta(seconds=99)]})], ignore_index=True)
+    # Create additional row with explicit dtypes to avoid FutureWarning
+    additional_gap = pd.DataFrame({
+        'idx_before_gap': [len(data)], 
+        'time_before_gap': [data.index[-1] + timedelta(seconds=1)], 
+        'gaplength': [timedelta(seconds=99)]
+    })
+    # Ensure dtypes match if gaps is not empty
+    if not gaps.empty:
+        additional_gap = additional_gap.astype(gaps.dtypes)
+    gaps = pd.concat([gaps, additional_gap], ignore_index=True)
     print("Number of gaps:", len(gaps))
     
     fx = np.ones(len(data))
@@ -154,6 +161,80 @@ def completemrd(data, col1, col2, M, shift, normed=False, plot=False):
         plt.show()
     
     return mrd_x, np.array(data_cont_mrd).T, np.array(time_middle)
+
+def plot_mrd(mrd_x, mrd_data, title="MRD", xlabel="avg. time [s]", ylabel=r"$C_{w\theta} [\cdot 10^{-3} \mathrm{Kms^{-1}}]$", ax=None, label=None, color=None, alpha=0.25):
+    """
+    Plot MRD results with median and interquartile range.
+    
+    Parameters:
+    -----------
+    mrd_x : array-like
+        Time scale array (timedeltas)
+    mrd_data : array-like
+        MRD data (2D array)
+    title : str, optional
+        Plot title
+    xlabel : str, optional
+        X-axis label
+    ylabel : str, optional
+        Y-axis label
+    ax : matplotlib.axes.Axes, optional
+        Axes to plot on. If None, creates new figure and axes
+    label : str, optional
+        Label for the plot legend
+    color : str, optional
+        Color for the line and fill
+    alpha : float, optional
+        Transparency for the fill area (default 0.25)
+    
+    Returns:
+    --------
+    fig, ax : matplotlib figure and axes objects
+    """
+    seconds_array = np.vectorize(lambda td: td.total_seconds())(mrd_x)
+
+    # Create new figure if ax not provided
+    if ax is None:
+        fig, ax = plt.subplots()
+        show_plot = True
+    else:
+        fig = ax.get_figure()
+        show_plot = False
+    
+    # Set labels and formatting
+    ax.set_title(title)
+    ax.set_xlabel(xlabel)
+    ax.set_ylabel(ylabel)
+    ax.grid(True)
+    ax.set_xscale("log")
+
+    # Plot the median MRD values
+    line = ax.plot(np.array(seconds_array), 
+                   (np.nanmedian(mrd_data, axis=1))*1000, 
+                   label=label, 
+                   color=color)
+    
+    # Get the color from the line if not specified
+    if color is None:
+        color = line[0].get_color()
+
+    # Fill between the quantiles
+    ax.fill_between(np.array(seconds_array), 
+                    np.nanquantile(mrd_data, 0.25, axis=1) * 1000, 
+                    np.nanquantile(mrd_data, 0.75, axis=1) * 1000, 
+                    alpha=alpha,
+                    color=color)
+    
+    # Add legend if labels are present
+    if label is not None:
+        ax.legend()
+    
+    # Only show if we created the figure
+    if show_plot:
+        plt.show()
+    
+    return fig, ax
+
 
 def mrdpp(mrd_x, mrd):
     """Post-processing of 'completemrd' to obtain quantiles, median, etc."""

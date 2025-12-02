@@ -2,7 +2,7 @@ plots_specific_events/
 plots/
 plots_months/
 plots_coherence/
-events/
+# events/
 
 # Python cache and bytecode
 __pycache__/

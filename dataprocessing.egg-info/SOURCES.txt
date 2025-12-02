@@ -7,7 +7,7 @@ dataprocessing.egg-info/requires.txt
 dataprocessing.egg-info/top_level.txt
 src/__init__.py
 src/ec/__init__.py
-src/ec/constants.py
+src/ec/func_coherence.py
 src/ec/func_despike_data.py
 src/ec/func_dr.py
 src/ec/func_mrfd.py
@@ -20,3 +20,5 @@ src/plotting/funcs_plots.py
 src/spc/__init__.py
 src/spc/normalize.py
 src/utils/__init__.py
+src/utils/constants.py
+src/utils/utils.py

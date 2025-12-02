@@ -1,3 +1,4 @@
+from datetime import datetime
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
@@ -445,7 +446,7 @@ def LvapEddyPro(temp):
     return 1000 * (3147.5 - 2.37 * temp)
 
 
-def read_eddypro_data(folder, sensor, qc=False):
+def read_eddypro_data(folder, sensor, qc=False, qc_level=1):
     # Read eddypro data from subfolders of the sensor folder
     sensor_folder = os.path.join(folder, sensor)
     files = glob.glob(os.path.join(sensor_folder, '**', 'eddypro_*_full_output*.csv'), recursive=True)
@@ -486,12 +487,36 @@ def read_eddypro_data(folder, sensor, qc=False):
         ql_ec = eddypro_data['LE'] * Ls / Ls_eddy
         eddypro_data['LE']=ql_ec
     if 'H' in eddypro_data.columns:
-        eddypro_data.loc[eddypro_data['qc_H']>=1, 'H'] = np.nan
+        eddypro_data.loc[eddypro_data['qc_H']>=qc_level, 'H'] = np.nan
         eddypro_data.loc[(eddypro_data['H'] > 200) | (eddypro_data['H'] < -400), 'H'] = np.nan
     if 'LE' in eddypro_data.columns:
-        eddypro_data.loc[eddypro_data['qc_LE']>=1, 'LE'] = np.nan
+        eddypro_data.loc[eddypro_data['qc_LE']>=qc_level, 'LE'] = np.nan
         eddypro_data.loc[(eddypro_data['LE'] > 200) | (eddypro_data['LE'] < -200), 'LE'] = np.nan
     if 'Tau' in eddypro_data.columns:
-        eddypro_data.loc[eddypro_data['qc_Tau']>=1, 'Tau'] = np.nan
+        eddypro_data.loc[eddypro_data['qc_Tau']>=qc_level, 'Tau'] = np.nan
 
     return eddypro_data
+
+def load_fastdata(folder, start, end):
+    start_dt = datetime.strptime(start, '%Y-%m-%d_%H:%M:%S')
+    end_dt = datetime.strptime(end, '%Y-%m-%d_%H:%M:%S')
+    all_dfs = []
+    for root, dirs, files in os.walk(folder):
+        files = sorted(files)
+        for file in files:
+            if file.endswith('.dat'):
+                try:
+                    date_str = file.split('_')[-2] + '_' + file.split('_')[-1].split('.')[0]
+                    file_dt = datetime.strptime(date_str, '%Y-%m-%d_%H%M')
+                    if start_dt <= file_dt <= end_dt:
+                        file_path = os.path.join(root, file)
+                        # print(f"Processing file: {file_path}")
+                        df = pd.read_csv(file_path, index_col=0, parse_dates=True, sep='\t')
+                        df.index = pd.to_datetime(df.index, format='%Y-%m-%d %H:%M:%S.%f', errors='coerce')
+                        all_dfs.append(df)
+                except Exception:
+                    pass
+    if all_dfs:
+        return pd.concat(all_dfs)
+    else:
+        return pd.DataFrame()
