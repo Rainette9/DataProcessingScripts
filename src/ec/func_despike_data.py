@@ -249,7 +249,7 @@ def plot_despiking_results(fastdata, fastdata_plaus, df_p, sensor, slowdata=None
     ax[3].set_ylabel('Ts (C)')
     ax[3].set_ylim(-30, 10)
     fig.suptitle('Fast data despiked for sensor ' + sensor + fastdata.index[0].strftime('%Y%m%d'), y=0.93)
-    plt.savefig(f'/home/engbers/Documents/PhD/EC_data_convert/SFC/plots_despiking/EC_despiked_{sensor}_{fastdata.index[0].strftime('%Y%m%d')}.png', bbox_inches='tight')
+    plt.savefig(f'/home/engbers/Documents/PhD/EC_data_convert/SFC/plots_despiking/EC_despiked_{sensor}_{fastdata.index[0].strftime("%Y%m%d")}.png', bbox_inches='tight')
     plt.close()
 
 

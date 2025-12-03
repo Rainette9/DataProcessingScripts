@@ -33,13 +33,15 @@ except Exception as e:
     print('Package import failed:', e)
     print('Make sure you ran `pip install -e .` (editable install) and restart the kernel, or that src/ exists at:', src_path)
 
+print('All imports successful!')
 
 # ========== CONFIGURATION ==========
 # Configure which heights to analyze
-SFC_height_folder = '/home/engbers/Documents/PhD/EC_data_convert/SFC_DR/'
-_16m_height_folder = '/home/engbers/Documents/PhD/EC_data_convert/CSAT_16m_DR/'
-_26m_height_folder = '/home/engbers/Documents/PhD/EC_data_convert/CSAT_26m_DR/'
-
+main_folder= '/capstor/scratch/cscs/rengbers/ec_data/'
+SFC_height_folder = main_folder + 'SFC_DR/'
+_16m_height_folder = main_folder + 'CSAT_16m_DR/'
+_26m_height_folder = main_folder + 'CSAT_26m_DR/'
+print(f"Data folder for SFC height: {SFC_height_folder}")
 
 # ========== FILTER CONFIGURATION ==========
 # Choose ONE filter type: 'wind_direction', 'stability', or 'blowing_snow'
@@ -84,7 +86,7 @@ color_scheme = {
 # ====================================
 for filter_type in ['wind_direction']:
     # Load event data based on filter type
-    events_folder = '/home/engbers/Documents/Github/DataProcessingScripts/events/'
+    events_folder = '/capstor/scratch/cscs/rengbers/DataProcessingScripts/events/'
     events_data = {}
 
     if filter_type == 'wind_direction':
@@ -131,6 +133,7 @@ for filter_type in ['wind_direction']:
                 shift=round(int(0.1 * 2**M)), 
                 plot=False
             )
+
             return {
                 'category': category,
                 'mrd_x': mrd_x_temp,
@@ -154,11 +157,19 @@ for filter_type in ['wind_direction']:
             all_tasks.append((period_start, period_end, category, SFC_height_folder))
     
     print(f"\nProcessing {len(all_tasks)} total periods across all categories...")
-    print(f"Using {cpu_count()} CPU cores for parallel processing\n")
+    num_cpus=64
+    print(f"Using {num_cpus} CPU cores for parallel processing\n")
     
     # Process periods in parallel
-    with Pool(processes=4) as pool:  # Use only 4 cores
+    with Pool(processes=num_cpus) as pool:  # Use only 4 cores
         results = pool.map(process_single_period, all_tasks)
+        
+        # Save results to pickle file
+        output_filename = f'mrd_results_{filter_type}.pkl'
+        with open(output_filename, 'wb') as f:
+            pickle.dump(results, f)
+        print(f"\nResults saved to {output_filename}")
+
     
     # Organize results by category
     for result in results:
@@ -215,5 +226,5 @@ for filter_type in ['wind_direction']:
     ax.grid(True, alpha=0.3)
     ax.legend()
     plt.tight_layout()
-    plt.savefig(f'MRD_wind_direction_comparison.png', dpi=300, bbox_inches='tight')
+    plt.savefig(f'MRD_wind_direction_comparison_SFC.png', dpi=300, bbox_inches='tight')
     plt.show()
