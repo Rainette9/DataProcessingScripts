@@ -67,7 +67,7 @@ def find_consecutive_periods(slowdata, SPC,  threshold=1, duration='4h', noBS=Fa
 
 
 
-def plot_SFC_slowdata_and_fluxes(slowdata, fluxes_SFC, fluxes_16m, fluxes_26m, sensor, start, end, SPC=None, resample_time='10min', interpolate=False, interp_time='1h'):
+def plot_SFC_slowdata_and_fluxes(slowdata, fluxes_SFC, fluxes_16m, fluxes_26m, sensor, start, end, SPC=None, MO=None, resample_time='10min', interpolate=False, interp_time='1h'):
     """
     Plots slowdata and fluxes for a given sensor over a specified time range.
 
@@ -77,18 +77,18 @@ def plot_SFC_slowdata_and_fluxes(slowdata, fluxes_SFC, fluxes_16m, fluxes_26m, s
     consecutive_periods = find_consecutive_periods(slowdata, SPC) ### find 3h hour consecutive BS periods
     filtered_periods = [period for period in consecutive_periods if period[0] >= pd.Timestamp(start) and period[1] <= pd.Timestamp(end)]
 
-    fig, ax = plt.subplots(9, 1, figsize=(13, 18), sharex=True)
+    fig, ax = plt.subplots(8, 1, figsize=(13, 18), sharex=True)
 
     for a in ax:
         for starts, ends in filtered_periods:
             a.axvspan(starts, ends, color='grey', alpha=0.2)
 
     ax[0].plot(resample_with_threshold(slowdata['SFTempK'][start:end] - 273.15, resample_time),
-               label='TS', color='darkblue', alpha=0.8, linestyle='dashed')
+               label='TSurface', color='darkblue', alpha=0.8, linestyle='dashed')
     ax[0].plot(resample_with_threshold(slowdata['TA'][start:end], resample_time),
                label='TA', color='deepskyblue')
-    ax[0].plot(resample_with_threshold(fluxes_SFC['sonic_temperature'][start:end] - 273.15, resample_time),
-               label='T_sonic_SFC', color='deepskyblue', alpha=0.8, linestyle='-.')
+    # ax[0].plot(resample_with_threshold(fluxes_SFC['sonic_temperature'][start:end] - 273.15, resample_time),
+    #            label='T_sonic_SFC', color='deepskyblue', alpha=0.8, linestyle='-.')
     ax[0].set_ylabel(r'Temperature [$^o$C]')
     # ax[0].plot(resample_with_threshold(fluxes_16m['sonic_temperature'][start:end] - 273.15, resample_time),
     #            label='T_16m', color='limegreen')
@@ -114,13 +114,13 @@ def plot_SFC_slowdata_and_fluxes(slowdata, fluxes_SFC, fluxes_16m, fluxes_26m, s
     ax[2].scatter(wd1[~wd1.between(45, 180)].index, wd1[~wd1.between(45, 180)],
                    s=10, color='deepskyblue', marker='x')
 
-    # WD2 markers
-    ax[2].scatter(wd2[wd2.between(45, 90)].index, wd2[wd2.between(45, 90)],
-                  label='WD2 (0-90)', s=10, color='darkblue', marker='s')
-    ax[2].scatter(wd2[wd2.between(90, 180)].index, wd2[wd2.between(90, 180)],
-                  label='WD2 (90-180)', s=10, color='darkblue', marker='o', facecolors='none')
-    ax[2].scatter(wd2[~wd2.between(45, 180)].index, wd2[~wd2.between(45, 180)],
-                  s=10, color='darkblue', marker='x')
+    # # WD2 markers
+    # ax[2].scatter(wd2[wd2.between(45, 90)].index, wd2[wd2.between(45, 90)],
+    #               label='WD2 (0-90)', s=10, color='darkblue', marker='s')
+    # ax[2].scatter(wd2[wd2.between(90, 180)].index, wd2[wd2.between(90, 180)],
+    #               label='WD2 (90-180)', s=10, color='darkblue', marker='o', facecolors='none')
+    # ax[2].scatter(wd2[~wd2.between(45, 180)].index, wd2[~wd2.between(45, 180)],
+    #               s=10, color='darkblue', marker='x')
 
     # Add a secondary y-axis (twinx) on the right
     ax2_right = ax[2].twinx()
@@ -137,11 +137,11 @@ def plot_SFC_slowdata_and_fluxes(slowdata, fluxes_SFC, fluxes_16m, fluxes_26m, s
     ax[2].set_ylim(0, 360)
 
     ax[3].plot(resample_with_threshold(slowdata['WS2_Avg'][start:end], resample_time),
-               label='WS2_Avg', color='darkblue')
+               label='WS_2m', color='darkblue')
     ax[3].plot(resample_with_threshold(fluxes_SFC['wind_speed'][start:end], resample_time),
-               label='WS_SFC', color='royalblue', alpha=0.8, linestyle='dashed')
-    ax[3].plot(resample_with_threshold(slowdata['WS1_Avg'][start:end], resample_time),
-               label='WS1_Avg', color='deepskyblue')
+               label='WS_2m_sonic', color='royalblue', alpha=0.8, linestyle='dashed')
+    # ax[3].plot(resample_with_threshold(slowdata['WS1_Avg'][start:end], resample_time),
+            #    label='WS1_Avg', color='deepskyblue')
     ax[3].plot(resample_with_threshold(fluxes_16m['wind_speed'][start:end], resample_time),
                label='WS_16m', color='limegreen')
     ax[3].plot(resample_with_threshold(fluxes_26m['wind_speed'][start:end], resample_time),
@@ -160,32 +160,36 @@ def plot_SFC_slowdata_and_fluxes(slowdata, fluxes_SFC, fluxes_16m, fluxes_26m, s
     ax[4].set_ylabel(r'Net Radiation [Wm$^{-2}$]')
     ax[4].legend(frameon=False)
 
-    ax[5].plot(resample_with_threshold(slowdata['HS_Cor'][start]-slowdata['HS_Cor'][start:end], resample_time),
-               label='Snow height', color='deepskyblue')
-    ax[5].set_ylabel('Relative snow height [m]')
-    ax[5].legend(frameon=False)
+    # ax[5].plot(resample_with_threshold(slowdata['HS_Cor'][start]-slowdata['HS_Cor'][start:end], resample_time),
+    #            label='Snow height', color='deepskyblue')
+    # ax[5].set_ylabel('Relative snow height [m]')
+    # ax[5].legend(frameon=False)
 
-    ax[6].plot(resample_with_threshold(SPC['Corrected Mass Flux(kg/m^2/s)'][start:end], resample_time)*1000, 
+    ax[5].plot(resample_with_threshold(SPC['Corrected Mass Flux(kg/m^2/s)'][start:end], resample_time)*1000, 
                label='SPC Mass Flux', color='darkblue')
-    ax[6].plot(resample_with_threshold(slowdata['PF_FC4'][start:end], resample_time),
-               label='PF_FC4', color='deepskyblue')
-    ax[6].legend(frameon=False)
-    ax[6].set_ylabel(r'Mass flux [gm$^{-2}$s$^{-1}$]')
+    ax[5].plot(resample_with_threshold(slowdata['PF_FC4'][start:end], resample_time),
+               label='FlowCapt Mass Flux', color='deepskyblue')
+    ax[5].legend(frameon=False)
+    ax[5].set_ylabel(r'Mass flux [gm$^{-2}$s$^{-1}$]')
 
-    ax[7].plot(resample_with_threshold(fluxes_SFC['H'][start:end], resample_time, interpolate, interp_time),
-               label='H SFC', color='deepskyblue')
-    ax[7].plot(resample_with_threshold(fluxes_16m['H'][start:end], resample_time, interpolate, interp_time),
+    ax[6].plot(resample_with_threshold(fluxes_SFC['H'][start:end], resample_time, interpolate, interp_time),
+               label='H 2m', color='deepskyblue')
+    ax[6].plot(resample_with_threshold(fluxes_16m['H'][start:end], resample_time, interpolate, interp_time),
                label='H 16m', color='limegreen')
-    ax[7].plot(resample_with_threshold(fluxes_26m['H'][start:end], resample_time, interpolate, interp_time),
+    ax[6].plot(resample_with_threshold(fluxes_26m['H'][start:end], resample_time, interpolate, interp_time),
                label='H 26m', color='gold')
-    ax[7].set_ylabel(r'SHF [Wm$^{-2}$]')
-    # ax[7].set_ylim(-180, 80)
-    ax[7].legend(frameon=False)
+    # ax[6].plot(resample_with_threshold(MO['H'][start:end], resample_time, interpolate, interp_time),
+            #    label='H MOST', color='red', alpha=0.8)
+    ax[6].set_ylabel(r'SHF [Wm$^{-2}$]')
+    # ax[6].set_ylim(-180, 80)
+    ax[6].legend(frameon=False)
 
-    ax[8].plot(resample_with_threshold(fluxes_SFC['LE'][start:end], resample_time, interpolate, interp_time),
-               label='LE SFC', color='deepskyblue')
-    ax[8].set_ylabel(r'LE [Wm$^{-2}$]')
-    ax[8].legend(frameon=False)
+    ax[7].plot(resample_with_threshold(fluxes_SFC['LE'][start:end], resample_time, interpolate, interp_time),
+               label='LE 2m', color='deepskyblue')
+    ax[7].plot(resample_with_threshold(MO['LE'][start:end], resample_time, interpolate, interp_time),
+               label='LE MOST', color='red', alpha=0.8)
+    ax[7].set_ylabel(r'LE [Wm$^{-2}$]')
+    ax[7].legend(frameon=False)
 
 
     fig.suptitle(f'{resample_time} resampled {start} - {end}', y=0.92, fontsize=16)

@@ -353,14 +353,6 @@ def calc_MO_profile(z_ref, x_ref, x_star, psi, z_out):
     return x_ref + x_star / 0.4 * (np.log(z_out / z_ref) - psi)
 
 
-def compute_MO(slowdata, z0=0.002):
-    """This function computes the Monin-Obukhov turbulent fluxes"""
-    
-    # Placeholder - needs implementation
-    SHF = None
-    LHF = None
-
-    return SHF, LHF
 
 # import pandas as pd
 # import numpy as np

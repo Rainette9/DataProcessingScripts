@@ -44,9 +44,13 @@ def read_data(folder_path, fastorslow, sensor, start=None, end=None, plot_data=F
                         # Read the data from the file
                         if fastorslow == 'slow':
                             data = pd.read_csv(file_path, delimiter=',', header=1, low_memory=False)
-                            data = data.drop([0, 1])
-                            #open and append the wind file
+                            # print(file_path)
+                            try:
+                                data = data.drop([0, 1])
+                            except KeyError:
+                                pass
                             if sensor=='SFC':
+                                
                                 file_path = os.path.join(root, file_name)
                                 match = re.search(r'_(\d+)\.dat$', file_name)
                                 match = re.search(r'_(\d+)', file_name)
@@ -71,6 +75,7 @@ def read_data(folder_path, fastorslow, sensor, start=None, end=None, plot_data=F
                                             data = data.join(wind_data, how='left', rsuffix='_wind')
 
                                             units_wind = pd.read_csv(wind_file_path, delimiter=',', header=1, nrows=1).iloc[0]
+                                
                                 else:
                                     for wind_file in files:
                                         if f'wind' in wind_file:
@@ -90,6 +95,9 @@ def read_data(folder_path, fastorslow, sensor, start=None, end=None, plot_data=F
                                                 data = data.join(wind_data, how='left', rsuffix='_wind')
 
                                                 units_wind = pd.read_csv(wind_file_path, delimiter=',', header=1, nrows=1).iloc[0]                                            
+                            # elif sensor=='B':
+                            #     data = data.drop([2, 3])
+                        
                         if fastorslow == 'fast':
                             # if file_count <=1 or file_count >= 4:
                             # # if file_count >= 1:
@@ -254,7 +262,8 @@ def plot_SFC_slowdata(slowdata, sensor, start, end):
     ax[0].plot(slowdata['TA'][start:end], label='TA', color='deepskyblue')
     ax[0].set_ylabel('Temperature [oC]')
     # ax[0].set_ylim(-45, 5)
-    ax[0].plot(slowdata['SFTempK'][start:end]-273.15, label='TS', color='gold', alpha=0.8)
+    if 'SFTempK' in slowdata.columns:
+        ax[0].plot(slowdata['SFTempK'][start:end]-273.15, label='TS', color='gold', alpha=0.8)
     ax[0].legend()
 
 
