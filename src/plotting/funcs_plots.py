@@ -74,14 +74,16 @@ def plot_SFC_slowdata_and_fluxes(slowdata, fluxes_SFC, fluxes_16m, fluxes_26m, s
         
     """
 
-    consecutive_periods = find_consecutive_periods(slowdata, SPC) ### find 3h hour consecutive BS periods
-    filtered_periods = [period for period in consecutive_periods if period[0] >= pd.Timestamp(start) and period[1] <= pd.Timestamp(end)]
+    if SPC is not None:
+        consecutive_periods = find_consecutive_periods(slowdata, SPC, threshold=1, duration='4h', noBS=False)
+        filtered_periods = [period for period in consecutive_periods if period[0] >= pd.Timestamp(start) and period[1] <= pd.Timestamp(end)]
 
     fig, ax = plt.subplots(8, 1, figsize=(13, 18), sharex=True)
 
     for a in ax:
-        for starts, ends in filtered_periods:
-            a.axvspan(starts, ends, color='grey', alpha=0.2)
+        if SPC is not None:
+            for starts, ends in filtered_periods:
+                a.axvspan(starts, ends, color='grey', alpha=0.2)
 
     ax[0].plot(resample_with_threshold(slowdata['SFTempK'][start:end] - 273.15, resample_time),
                label='TSurface', color='darkblue', alpha=0.8, linestyle='dashed')
@@ -164,9 +166,9 @@ def plot_SFC_slowdata_and_fluxes(slowdata, fluxes_SFC, fluxes_16m, fluxes_26m, s
     #            label='Snow height', color='deepskyblue')
     # ax[5].set_ylabel('Relative snow height [m]')
     # ax[5].legend(frameon=False)
-
-    ax[5].plot(resample_with_threshold(SPC['Corrected Mass Flux(kg/m^2/s)'][start:end], resample_time)*1000, 
-               label='SPC Mass Flux', color='darkblue')
+    if SPC is not None:
+        ax[5].plot(resample_with_threshold(SPC['Corrected Mass Flux(kg/m^2/s)'][start:end], resample_time)*1000, 
+                    label='SPC Mass Flux', color='darkblue')
     ax[5].plot(resample_with_threshold(slowdata['PF_FC4'][start:end], resample_time),
                label='FlowCapt Mass Flux', color='deepskyblue')
     ax[5].legend(frameon=False)
@@ -186,8 +188,9 @@ def plot_SFC_slowdata_and_fluxes(slowdata, fluxes_SFC, fluxes_16m, fluxes_26m, s
 
     ax[7].plot(resample_with_threshold(fluxes_SFC['LE'][start:end], resample_time, interpolate, interp_time),
                label='LE 2m', color='deepskyblue')
-    ax[7].plot(resample_with_threshold(MO['LE'][start:end], resample_time, interpolate, interp_time),
-               label='LE MOST', color='red', alpha=0.8)
+    if MO is not None:
+        ax[7].plot(resample_with_threshold(MO['LE'][start:end], resample_time, interpolate, interp_time),
+                  label='LE MOST', color='red', alpha=0.8)
     ax[7].set_ylabel(r'LE [Wm$^{-2}$]')
     ax[7].legend(frameon=False)
 
