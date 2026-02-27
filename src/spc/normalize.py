@@ -106,3 +106,4 @@ def getRawData(SPC_filenames): # Returns raw data (only bins counts and flux mas
     SPC.set_index('Time(UTC)',inplace=True)
     SPC.sort_index(inplace=True)
     return SPC
+

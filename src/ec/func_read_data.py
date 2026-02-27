@@ -5,6 +5,7 @@ import matplotlib.pyplot as plt
 import os
 import re
 import glob
+import csv
 
 from utils.constants import *
 from utils.utils import convert_RH_liquid_to_ice
@@ -24,7 +25,7 @@ def read_data(folder_path, fastorslow, sensor, start=None, end=None, plot_data=F
     if fastorslow == 'fast':
         name=['Fast', 'FAST', 'fast']
     if fastorslow == 'slow':
-        name=['Slow', 'SLOW', 'OneMin']
+        name=['Slow', 'SLOW', 'OneMin', 'slow']
     # Initialize an empty list to store DataFrames
     data_frames = []
     file_count=0
@@ -43,7 +44,7 @@ def read_data(folder_path, fastorslow, sensor, start=None, end=None, plot_data=F
                         file_path = os.path.join(root, file_name)
                         # Read the data from the file
                         if fastorslow == 'slow':
-                            data = pd.read_csv(file_path, delimiter=',', header=1, low_memory=False)
+                            data = pd.read_csv(file_path, delimiter=',', header=1, low_memory=False, na_values=[-9999, '-9999'])
                             # print(file_path)
                             try:
                                 data = data.drop([0, 1])
@@ -64,13 +65,15 @@ def read_data(folder_path, fastorslow, sensor, start=None, end=None, plot_data=F
                                             wind_file_path = os.path.join(root, wind_file)
                                             # Open and process the wind file
                                             try:
-                                                wind_data = pd.read_csv(wind_file_path, delimiter=',', header=1, low_memory=False)
+                                                wind_data = pd.read_csv(wind_file_path, delimiter=',', header=1, low_memory=False, na_values=[-9999, '-9999'])
                                             except pd.errors.ParserError:
                                                 print(f"Parser error in file: {wind_file_path}")
                                                 # Try with error handling
-                                                wind_data = pd.read_csv(wind_file_path, delimiter=',', header=1, low_memory=False, 
-                                                                       on_bad_lines='skip', quoting=3)  # quoting=3 means no quoting
+                                                wind_data = pd.read_csv(wind_file_path, delimiter=',', header=1, low_memory=False,
+                                                                       on_bad_lines='skip', quoting=3, na_values=[-9999, '-9999'])  # quoting=3 means no quoting
                                             wind_data = wind_data.drop([0, 1])
+                                            # Filter out extra header rows from concatenated files
+                                            wind_data = wind_data[~wind_data['TIMESTAMP'].astype(str).str.match(r'^(TOA5|TIMESTAMP|TS|)$', na=False)]
                                             wind_data['TIMESTAMP'] = pd.to_datetime(wind_data['TIMESTAMP'], format='mixed')
                                             data = data.join(wind_data, how='left', rsuffix='_wind')
 
@@ -84,13 +87,15 @@ def read_data(folder_path, fastorslow, sensor, start=None, end=None, plot_data=F
                                                 wind_file_path = os.path.join(root, wind_file)
                                                 # Open and process the wind file
                                                 try:
-                                                    wind_data = pd.read_csv(wind_file_path, delimiter=',', header=1, low_memory=False)
+                                                    wind_data = pd.read_csv(wind_file_path, delimiter=',', header=1, low_memory=False, na_values=[-9999, '-9999'])
                                                 except pd.errors.ParserError:
                                                     print(f"Parser error in file: {wind_file_path}")
                                                     # Try with error handling
-                                                    wind_data = pd.read_csv(wind_file_path, delimiter=',', header=1, low_memory=False, 
-                                                                        on_bad_lines='skip', quoting=3)  # quoting=3 means no quoting
+                                                    wind_data = pd.read_csv(wind_file_path, delimiter=',', header=1, low_memory=False,
+                                                                        on_bad_lines='skip', quoting=3, na_values=[-9999, '-9999'])  # quoting=3 means no quoting
                                                 wind_data = wind_data.drop([0, 1])
+                                                # Filter out extra header rows from concatenated files
+                                                wind_data = wind_data[~wind_data['TIMESTAMP'].astype(str).str.match(r'^(TOA5|TIMESTAMP|TS|)$', na=False)]
                                                 wind_data['TIMESTAMP'] = pd.to_datetime(wind_data['TIMESTAMP'], format='mixed')
                                                 data = data.join(wind_data, how='left', rsuffix='_wind')
 
@@ -104,12 +109,15 @@ def read_data(folder_path, fastorslow, sensor, start=None, end=None, plot_data=F
                             #     file_count += 1  # Increment the counter
                             #     continue
                             print(f'reading data {file_name}')
-                            data = pd.read_csv(file_path, delimiter=',', header=1, low_memory=False)
+                            data = pd.read_csv(file_path, delimiter=',', header=1, low_memory=False, na_values=[-9999, '-9999'])
                             data = data.drop([0, 1])
                             
                         file_count += 1  # Increment the counter
                         # Read the units from the second row
                         units = pd.read_csv(file_path, delimiter=',', header=1, nrows=1).iloc[0]
+                        # Filter out any extra header rows (from concatenated files with TOA5 headers)
+                        # Matches TOA5, TIMESTAMP, TS (units), or empty strings
+                        data = data[~data['TIMESTAMP'].astype(str).str.match(r'^(TOA5|TIMESTAMP|TS|)$', na=False)]
                         # Drop the second and third rows with units and empty strings
                         data['TIMESTAMP'] = pd.to_datetime(data['TIMESTAMP'], format='mixed')
                         data.set_index('TIMESTAMP', inplace=True)
@@ -136,7 +144,7 @@ def read_data(folder_path, fastorslow, sensor, start=None, end=None, plot_data=F
 
     # Store units in a separate attribute
     combined_data.attrs['units'] = units.to_dict()
-    if sensor=='SFC' and fastorslow == 'slow':
+    if sensor=='SFC' and fastorslow == 'slow' and units_wind is not None:
         combined_data.attrs['units_wind'] = units_wind.to_dict()
 
 
@@ -506,6 +514,26 @@ def read_eddypro_data(folder, sensor, qc=False, qc_level=1):
 
     return eddypro_data
 
+def infer_delimiter(file_path, sample_size=1024):
+    """
+    Infer the delimiter of a CSV file by sampling the first few lines.
+    
+    Parameters:
+        file_path (str): Path to the file
+        sample_size (int): Number of bytes to sample
+    
+    Returns:
+        str: The inferred delimiter (usually ',' or '\t')
+    """
+    try:
+        with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+            sample = f.read(sample_size)
+        sniffer = csv.Sniffer()
+        delimiter = sniffer.sniff(sample).delimiter
+        return delimiter
+    except Exception:
+        return ','  # Default to comma if inference fails
+
 def load_fastdata(folder, start, end):
     start_dt = datetime.strptime(start, '%Y-%m-%d_%H:%M:%S')
     end_dt = datetime.strptime(end, '%Y-%m-%d_%H:%M:%S')
@@ -519,8 +547,9 @@ def load_fastdata(folder, start, end):
                     file_dt = datetime.strptime(date_str, '%Y-%m-%d_%H%M')
                     if start_dt <= file_dt <= end_dt:
                         file_path = os.path.join(root, file)
-                        # print(f"Processing file: {file_path}")
-                        df = pd.read_csv(file_path, index_col=0, parse_dates=True, sep='\t')
+                        # Infer delimiter automatically
+                        delimiter = infer_delimiter(file_path)
+                        df = pd.read_csv(file_path, index_col=0, parse_dates=True, sep=delimiter)
                         df.index = pd.to_datetime(df.index, format='%Y-%m-%d %H:%M:%S.%f', errors='coerce')
                         all_dfs.append(df)
                 except Exception:
