@@ -463,12 +463,14 @@ def LvapEddyPro(temp):
     return 1000 * (3147.5 - 2.37 * temp)
 
 
-def read_eddypro_data(folder, sensor, qc=False, qc_level=1):
+def read_eddypro_data(folder, sensor, qc=False, qc_level=1, filename_filter=None):
     # Read eddypro data from subfolders of the sensor folder
     sensor_folder = os.path.join(folder, sensor)
     files = glob.glob(os.path.join(sensor_folder, '**', 'eddypro_*_full_output*.csv'), recursive=True)
     if qc==True:
         files = glob.glob(os.path.join(sensor_folder, '**', 'eddypro_*_qc_details*.csv'), recursive=True)
+    if filename_filter is not None:
+        files = [f for f in files if filename_filter in os.path.basename(f)]
     print("Files found:", files)
     # Extract the first row as metadata and remove it from the dataframe
     eddypro_data = pd.concat(

@@ -18,13 +18,17 @@ def resample_with_threshold(data, resample_time, interpolate=False, max_gap='1h'
         pd.Series: The resampled data with insufficient valid data set to NaN.
     """
     if interpolate == True:
-        # Calculate the data's frequency in seconds
-        freq = (data.index[1] - data.index[0]).total_seconds()
-        # Convert the max_gap to seconds
-        max_gap_seconds = pd.to_timedelta(max_gap).total_seconds()
-        # Calculate the limit as the number of consecutive NaNs within the max_gap
-        limit = int(max_gap_seconds / freq)
-        data = data.interpolate(limit=limit, limit_direction='both', limit_area='inside')
+        # Estimate native time step in seconds from the index.
+        diffs = data.index.to_series().diff().dt.total_seconds().dropna()
+        diffs = diffs[diffs > 0]
+        if not diffs.empty:
+            freq_seconds = diffs.median()
+            # Convert the max_gap to seconds
+            max_gap_seconds = pd.to_timedelta(max_gap).total_seconds()
+            # Number of consecutive NaNs allowed to be interpolated
+            limit = int(max_gap_seconds / freq_seconds)
+            if limit > 0:
+                data = data.interpolate(limit=limit, limit_direction='both', limit_area='inside')
     # Resample the data
     resampled_data = data.resample(resample_time).mean()
     # Count the number of valid (non-NaN) values in each resample period

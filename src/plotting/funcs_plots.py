@@ -11,6 +11,246 @@ from utils.utils import convert_RH_liquid_to_ice, resample_with_threshold
 
 
 
+def plot_multilevel_slowdata_and_fluxes(
+        slow_sfc, slow_bottom, slow_lower, slow_upper,
+        fluxes_sfc, fluxes_bot, fluxes_low, fluxes_up,
+        start, end,
+        resample_time='10min', interpolate=False, interp_time='1h',
+        bs_threshold=0.01):
+    """
+    Plots slow data and fluxes for all four measurement heights (SFC ~2m, BOTTOM ~5m,
+    LOWER ~16m, UPPER ~26m) over a specified time range.
+
+    Subplots:
+        0 - Temperature at multiple heights
+        1 - Relative Humidity at multiple heights
+        2 - Wind Speed at multiple heights
+        3 - Wind Direction (SFC only) + stability (z/L from SFC)
+        4 - Net radiation at all available heights
+        5 - FlowCapt blowing snow mass flux at all available heights
+        6 - Sensible Heat Flux at 2, 5, 16, 26 m
+        7 - Latent Heat Flux at 2, 16, 26 m
+
+    Background highlights show periods where FlowCapt exceeds bs_threshold
+    (g/m²/s), with a distinct colour per sensor height.
+    """
+    # ── color palette per measurement height ──────────────────────────────────
+    c_2m  = 'deepskyblue'
+    c_5m  = 'royalblue'
+    c_10m = 'mediumseagreen'
+    c_16m = 'gold'
+    c_26m = 'tomato'
+
+    # blowing-snow highlight colours (one per FlowCapt height)
+    bs_colors = {
+        'SFC':  ('skyblue',    0.20),   # ~surface
+        '4m':   ('limegreen',  0.20),
+        '11m':  ('orange',     0.18),
+        '15m':  ('red',        0.15),
+    }
+
+    def _rs(series):
+        return resample_with_threshold(series[start:end], resample_time)
+
+    def _rs_flux(series):
+        return resample_with_threshold(series[start:end], resample_time, interpolate, interp_time, min_valid_percent=65)
+
+    def _col(df, col):
+        return df[col] if col in df.columns else None
+
+    def _bs_periods(series, threshold):
+        """Return list of (t_start, t_end) where resampled series > threshold."""
+        rs = resample_with_threshold(series[start:end], resample_time).fillna(0)
+        mask = rs > threshold
+        if not mask.any():
+            return []
+        changes = mask.astype(int).diff().fillna(0)
+        t_starts = mask.index[changes == 1].tolist()
+        t_ends   = mask.index[changes == -1].tolist()
+        if mask.iloc[0]:
+            t_starts = [mask.index[0]] + t_starts
+        if mask.iloc[-1]:
+            t_ends = t_ends + [mask.index[-1]]
+        return list(zip(t_starts, t_ends))
+
+    # ── collect FlowCapt series that exist ────────────────────────────────────
+    fc_sources = []  # list of (label, series, highlight_key)
+    fc_sources.append(('FC SFC (~0.5m)', slow_sfc['PF_FC4'], 'SFC'))
+    for col, lbl, hkey in [
+        ('FluxMean_4m',  'FC 4m',  '4m'),
+        ('FluxMean_11m', 'FC 11m', '11m'),
+        ('FluxMean_15m', 'FC 15m', '15m'),
+    ]:
+        s = _col(slow_lower, col)
+        if s is not None:
+            fc_sources.append((lbl, s, hkey))
+
+    # ── build blowing-snow period spans for each source ───────────────────────
+    bs_spans = {}   # hkey -> list of (t0, t1)
+    for lbl, series, hkey in fc_sources:
+        bs_spans[hkey] = _bs_periods(series, bs_threshold)
+
+    # ── draw figure ───────────────────────────────────────────────────────────
+    fig, ax = plt.subplots(8, 1, figsize=(13, 20), sharex=True)
+
+    def _add_bs_highlights(a):
+        for hkey, periods in bs_spans.items():
+            color, alpha = bs_colors[hkey]
+            for t0, t1 in periods:
+                a.axvspan(t0, t1, color=color, alpha=alpha, linewidth=0)
+
+    for a in ax:
+        _add_bs_highlights(a)
+
+    # ── 0: Temperature ────────────────────────────────────────────────────────
+    ax[0].plot(_rs(slow_sfc['SFTempK'] - 273.15), label='T surf', color='darkblue', linestyle='dotted')
+    ax[0].plot(_rs(slow_sfc['TA']),              label='T 2m',  color=c_2m)
+    ax[0].plot(_rs(slow_bottom['Temp_5m_Avg']),  label='T 5m',  color=c_5m)
+    for col, lbl, col_clr in [('Temp_10m_Avg', 'T 10m', c_10m),
+                               ('Temp_16m_Avg', 'T 16m', c_16m)]:
+        s = _col(slow_lower, col)
+        if s is not None:
+            ax[0].plot(_rs(s), label=lbl, color=col_clr)
+    ax[0].plot(_rs(slow_upper['Temp_26m_Avg']), label='T 26m', color=c_26m)
+    ax[0].set_ylabel(r'Temperature [$^o$C]')
+    ax[0].legend(frameon=False, ncol=3)
+
+    # ── 1: Relative Humidity ──────────────────────────────────────────────────
+    ax[1].plot(_rs(convert_RH_liquid_to_ice(slow_sfc['RH'], slow_sfc['TA'])),
+               label='RH 2m', color=c_2m)
+    ax[1].plot(_rs(slow_bottom['RH_5m_Avg']),  label='RH 5m',  color=c_5m)
+    for col, lbl, col_clr in [('RH_10m_Avg', 'RH 10m', c_10m),
+                               ('RH_16m_Avg', 'RH 16m', c_16m)]:
+        s = _col(slow_lower, col)
+        if s is not None:
+            series = _rs(s)
+            if series.median() < 5:
+                series = series * 100
+            ax[1].plot(series, label=lbl, color=col_clr)
+    rh_up = _col(slow_upper, 'RH_26m_Avg')
+    if rh_up is not None:
+        series = _rs(rh_up)
+        if series.median() < 5:
+            series = series * 100
+        ax[1].plot(series, label='RH 26m', color=c_26m)
+    ax[1].set_ylabel('RH wrt ice [%]')
+    ax[1].set_ylim(0, 115)
+    ax[1].legend(frameon=False, ncol=3)
+
+    # ── 2: Wind Speed ─────────────────────────────────────────────────────────
+    ax[2].plot(_rs(slow_sfc['WS2_Avg']),        label='WS 2m',  color=c_2m)
+    ax[2].plot(_rs(slow_bottom['WS_5m_Avg']),   label='WS 5m',  color=c_5m)
+    for col, lbl, col_clr in [('WS_10m_Avg', 'WS 10m', c_10m),
+                               ('WS_16m_Avg', 'WS 16m', c_16m)]:
+        s = _col(slow_lower, col)
+        if s is not None:
+            ax[2].plot(_rs(s), label=lbl, color=col_clr)
+    ax[2].plot(_rs(slow_upper['WS_26m_Avg']),   label='WS 26m', color=c_26m)
+    ax[2].set_ylabel(r'Wind Speed [ms$^{-1}$]')
+    ax[2].legend(frameon=False, ncol=3)
+
+    # ── 3: Wind Direction (SFC) + stability ───────────────────────────────────
+    wd = _rs(slow_sfc['WD1'])
+    ax[3].scatter(wd[wd.between(45,  90)].index,  wd[wd.between(45,  90)],  s=10, color=c_2m, marker='s', label='WD (45-90)')
+    ax[3].scatter(wd[wd.between(90, 180)].index,  wd[wd.between(90, 180)],  s=10, color=c_2m, marker='o', facecolors='none', label='WD (90-180)')
+    ax[3].scatter(wd[~wd.between(45, 180)].index, wd[~wd.between(45, 180)], s=10, color=c_2m, marker='x')
+    ax[3].scatter(_rs(slow_lower['WD_16m']).index, _rs(slow_lower['WD_16m']), s=10, color=c_16m, marker='x', label='WD 16m')
+    ax[3].set_ylabel('Wind Direction')
+    ax[3].set_ylim(0, 360)
+    ax3r = ax[3].twinx()
+    ax3r.scatter(_rs_flux(fluxes_sfc['(z-d)/L']).index,
+                 _rs_flux(fluxes_sfc['(z-d)/L']), color='darkorange', s=5, marker='^', label='z/L SFC')
+    ax3r.set_ylabel('z/L', color='darkorange')
+    ax3r.set_ylim(-0.4, 2)
+    ax3r.tick_params(axis='y', colors='darkorange')
+    ax3r.yaxis.label.set_color('darkorange')
+    ax3r.spines['right'].set_color('darkorange')
+    ax[3].legend(frameon=False, ncol=2)
+    ax3r.legend(frameon=False, loc='upper right')
+
+    # ── 4: Net Radiation ──────────────────────────────────────────────────────
+    ax[4].plot(_rs(-(slow_sfc['SWdown1'] - slow_sfc['SWup1'])),
+               label='SW_net SFC', color=c_2m)
+    ax[4].plot(_rs(-(slow_sfc['LWdown1'] - slow_sfc['LWup1'])),
+               label='LW_net SFC', color=c_2m, linestyle='dashed')
+    # BOTTOM: check Incoming/Outgoing style (same convention as LOWER) then fallback
+    for sw_dn, sw_up, lw_dn, lw_up, lbl, col_clr in [
+        ('Incoming_SW_5m_Avg',  'Outgoing_SW_5m_Avg',  'Incoming_LW_5m_Avg',  'Outgoing_LW_5m_Avg',  '5m',  c_5m),
+        ('SWdown_5m_Avg', 'SWup_5m_Avg', 'LWdown_5m_Avg', 'LWup_5m_Avg', '5m', c_5m),
+    ]:
+        if all(c in slow_bottom.columns for c in [sw_dn, sw_up, lw_dn, lw_up]):
+            ax[4].plot(_rs(-(slow_bottom[sw_dn] - slow_bottom[sw_up])),
+                       label=f'SW_net {lbl}', color=col_clr)
+            ax[4].plot(_rs(-(slow_bottom[lw_dn] - slow_bottom[lw_up])),
+                       label=f'LW_net {lbl}', color=col_clr, linestyle='dashed')
+            break
+    # LOWER: known column names from logger header
+    if all(c in slow_lower.columns for c in ['Incoming_SW_16m_Avg', 'Outgoing_SW_16m_Avg',
+                                              'Incoming_LW_16m_Avg', 'Outgoing_LW_16m_Avg']):
+        ax[4].plot(_rs(-(slow_lower['Incoming_SW_16m_Avg'] - slow_lower['Outgoing_SW_16m_Avg'])),
+                   label='SW_net 16m', color=c_16m)
+        ax[4].plot(_rs(-(slow_lower['Incoming_LW_16m_Avg'] - slow_lower['Outgoing_LW_16m_Avg'])),
+                   label='LW_net 16m', color=c_16m, linestyle='dashed')
+    # UPPER: same naming convention
+    for sw_dn, sw_up, lw_dn, lw_up, lbl, col_clr in [
+        ('Incoming_SW_26m_Avg', 'Outgoing_SW_26m_Avg', 'Incoming_LW_26m_Avg', 'Outgoing_LW_26m_Avg', '26m', c_26m),
+        ('SWdown_26m_Avg', 'SWup_26m_Avg', 'LWdown_26m_Avg', 'LWup_26m_Avg', '26m', c_26m),
+    ]:
+        if all(c in slow_upper.columns for c in [sw_dn, sw_up, lw_dn, lw_up]):
+            ax[4].plot(_rs(-(slow_upper[sw_dn] - slow_upper[sw_up])),
+                       label=f'SW_net {lbl}', color=col_clr)
+            ax[4].plot(_rs(-(slow_upper[lw_dn] - slow_upper[lw_up])),
+                       label=f'LW_net {lbl}', color=col_clr, linestyle='dashed')
+            break
+    ax[4].set_ylabel(r'Net Radiation [Wm$^{-2}$]')
+    ax[4].legend(frameon=False, ncol=3)
+
+    # ── 5: FlowCapt blowing snow mass flux ────────────────────────────────────
+    fc_line_colors = {'SFC': c_2m, '4m': c_5m, '11m': c_10m, '15m': c_16m}
+    for lbl, series, hkey in fc_sources:
+        ax[5].plot(_rs(series), label=lbl, color=fc_line_colors.get(hkey, 'grey'))
+    ax[5].axhline(bs_threshold, color='black', linewidth=0.8, linestyle=':', label=f'threshold {bs_threshold}')
+    ax[5].set_yscale('log')
+    ax[5].set_ylabel(r'Mass Flux [gm$^{-2}$s$^{-1}$]')
+    ax[5].legend(frameon=False, ncol=3)
+
+    # ── 6: Sensible Heat Flux ─────────────────────────────────────────────────
+    ax[6].plot(_rs_flux(fluxes_sfc['H']), label='H 2m',  color=c_2m)
+    if fluxes_bot is not None:
+        ax[6].plot(_rs_flux(fluxes_bot['H']), label='H 5m',  color=c_5m)
+    if fluxes_low is not None:
+        ax[6].plot(_rs_flux(fluxes_low['H']), label='H 16m', color=c_16m)
+    if fluxes_up is not None:
+        ax[6].plot(_rs_flux(fluxes_up['H']),  label='H 26m', color=c_26m)
+    ax[6].set_ylabel(r'SHF [Wm$^{-2}$]')    
+    ax[6].axhline(0, color='grey', linestyle='dashed', alpha=0.5)
+    ax[6].legend(frameon=False, ncol=2)
+
+    # ── 7: Latent Heat Flux ───────────────────────────────────────────────────
+    ax[7].plot(_rs_flux(fluxes_sfc['LE']), label='LE 2m',  color=c_2m)
+    if fluxes_low is not None:
+        ax[7].plot(_rs_flux(fluxes_low['LE']), label='LE 16m', color=c_16m)
+    if fluxes_up is not None:
+        ax[7].plot(_rs_flux(fluxes_up['LE']),  label='LE 26m', color=c_26m)
+    ax[7].set_ylabel(r'LE [Wm$^{-2}$]')
+    ax[7].axhline(0, color='grey', linestyle='dashed', alpha=0.5)
+    ax[7].legend(frameon=False, ncol=2)
+
+    # ── legend for blowing-snow highlights ────────────────────────────────────
+    from matplotlib.patches import Patch
+    bs_legend = [Patch(facecolor=col, alpha=alpha, label=f'BS > {bs_threshold} ({hkey})')
+                 for hkey, (col, alpha) in bs_colors.items()
+                 if hkey in bs_spans and len(bs_spans[hkey]) > 0]
+    if bs_legend:
+        fig.legend(handles=bs_legend, loc='lower center', ncol=len(bs_legend),
+                   frameon=True, title='Blowing snow highlights', fontsize=9,
+                   title_fontsize=9, bbox_to_anchor=(0.5, 0.0))
+
+    fig.suptitle(f'{resample_time} resampled  {start} – {end}', y=0.995, fontsize=16)
+    plt.tight_layout(rect=[0, 0, 1, 0.99])
+    return fig, ax
+
+
 def find_consecutive_periods(slowdata, SPC,  threshold=1, duration='4h', noBS=False):
     """
     Finds periods where both slowdata['PF_FC4'] and SPC['Corrected Mass Flux(kg/m^2/s)']
@@ -34,17 +274,23 @@ def find_consecutive_periods(slowdata, SPC,  threshold=1, duration='4h', noBS=Fa
         slowdata = slowdata[slowdata['WS1_Avg'] > 3]
         # Create masks for values greater than the threshold
         mask_slowdata = slowdata['PF_FC4'] > threshold
-        # mask_SPC = SPC['Corrected Mass Flux(kg/m^2/s)']  >= threshold /1000
-        mask_SPC = SPC['Corrected Mass Flux(kg/m^2/s)']  >= 0
-        # Combine masks to find periods where both conditions are met
-        combined_mask = mask_slowdata & mask_SPC
+        if SPC is not None:
+            # mask_SPC = SPC['Corrected Mass Flux(kg/m^2/s)']  >= threshold /1000
+            mask_SPC = SPC['Corrected Mass Flux(kg/m^2/s)']  >= 0
+            # Combine masks to find periods where both conditions are met
+            combined_mask = mask_slowdata & mask_SPC
+        else:
+            combined_mask = mask_slowdata
         resampled_mask = combined_mask.resample(duration).mean() > 0.7  # At least some values meet criteria
     else:  # noBS == True
         # Find periods WITHOUT blowing snow (values consistently below threshold)
         mask_slowdata = slowdata['PF_FC4'] < threshold
-        mask_SPC = SPC['Corrected Mass Flux(kg/m^2/s)'] <= threshold / 1000
-        # Combine masks to find periods where both conditions are met
-        combined_mask = mask_slowdata & mask_SPC
+        if SPC is not None:
+            mask_SPC = SPC['Corrected Mass Flux(kg/m^2/s)'] <= threshold / 1000
+            # Combine masks to find periods where both conditions are met
+            combined_mask = mask_slowdata & mask_SPC
+        else:
+            combined_mask = mask_slowdata
         # For no-BS periods, we want ALL values to be below threshold (mean close to 1.0)
         resampled_mask = combined_mask.resample(duration).mean() > 0.98  # 90% of values must meet criteria
     # Identify consecutive periods
@@ -144,10 +390,12 @@ def plot_SFC_slowdata_and_fluxes(slowdata, fluxes_SFC, fluxes_16m, fluxes_26m, s
                label='WS_2m_sonic', color='royalblue', alpha=0.8, linestyle='dashed')
     # ax[3].plot(resample_with_threshold(slowdata['WS1_Avg'][start:end], resample_time),
             #    label='WS1_Avg', color='deepskyblue')
-    ax[3].plot(resample_with_threshold(fluxes_16m['wind_speed'][start:end], resample_time),
-               label='WS_16m', color='limegreen')
-    ax[3].plot(resample_with_threshold(fluxes_26m['wind_speed'][start:end], resample_time),
-               label='WS_26m', color='gold')
+    if fluxes_16m is not None:
+        ax[3].plot(resample_with_threshold(fluxes_16m['wind_speed'][start:end], resample_time),
+                   label='WS_16m', color='limegreen')
+    if fluxes_26m is not None:
+        ax[3].plot(resample_with_threshold(fluxes_26m['wind_speed'][start:end], resample_time),
+                   label='WS_26m', color='gold')
     ax[3].set_ylabel(r'Wind Speed [ms$^{-1}$]')
     ax[3].legend(frameon=False)
 
@@ -176,10 +424,12 @@ def plot_SFC_slowdata_and_fluxes(slowdata, fluxes_SFC, fluxes_16m, fluxes_26m, s
 
     ax[6].plot(resample_with_threshold(fluxes_SFC['H'][start:end], resample_time, interpolate, interp_time),
                label='H 2m', color='deepskyblue')
-    ax[6].plot(resample_with_threshold(fluxes_16m['H'][start:end], resample_time, interpolate, interp_time),
-               label='H 16m', color='limegreen')
-    ax[6].plot(resample_with_threshold(fluxes_26m['H'][start:end], resample_time, interpolate, interp_time),
-               label='H 26m', color='gold')
+    if fluxes_16m is not None:
+        ax[6].plot(resample_with_threshold(fluxes_16m['H'][start:end], resample_time, interpolate, interp_time),
+                   label='H 16m', color='limegreen')
+    if fluxes_26m is not None:
+        ax[6].plot(resample_with_threshold(fluxes_26m['H'][start:end], resample_time, interpolate, interp_time),
+                   label='H 26m', color='gold')
     # ax[6].plot(resample_with_threshold(MO['H'][start:end], resample_time, interpolate, interp_time),
             #    label='H MOST', color='red', alpha=0.8)
     ax[6].set_ylabel(r'SHF [Wm$^{-2}$]')
