@@ -44,7 +44,11 @@ def read_data(folder_path, fastorslow, sensor, start=None, end=None, plot_data=F
                         file_path = os.path.join(root, file_name)
                         # Read the data from the file
                         if fastorslow == 'slow':
-                            data = pd.read_csv(file_path, delimiter=',', header=1, low_memory=False, na_values=[-9999, '-9999'])
+                            try:
+                                data = pd.read_csv(file_path, delimiter=',', header=1, low_memory=False, na_values=[-9999, '-9999'], encoding='latin-1')
+                            except (pd.errors.ParserError, pd.errors.EmptyDataError) as e:
+                                print(f"Skipping empty/short file: {file_path} ({e})")
+                                continue
                             # print(file_path)
                             try:
                                 data = data.drop([0, 1])
@@ -109,12 +113,12 @@ def read_data(folder_path, fastorslow, sensor, start=None, end=None, plot_data=F
                             #     file_count += 1  # Increment the counter
                             #     continue
                             print(f'reading data {file_name}')
-                            data = pd.read_csv(file_path, delimiter=',', header=1, low_memory=False, na_values=[-9999, '-9999'])
+                            data = pd.read_csv(file_path, delimiter=',', header=1, low_memory=False, na_values=[-9999, '-9999'], encoding='latin-1')
                             data = data.drop([0, 1])
                             
                         file_count += 1  # Increment the counter
                         # Read the units from the second row
-                        units = pd.read_csv(file_path, delimiter=',', header=1, nrows=1).iloc[0]
+                        units = pd.read_csv(file_path, delimiter=',', header=1, nrows=1, encoding='latin-1').iloc[0]
                         # Filter out any extra header rows (from concatenated files with TOA5 headers)
                         # Matches TOA5, TIMESTAMP, TS (units), or empty strings
                         data = data[~data['TIMESTAMP'].astype(str).str.match(r'^(TOA5|TIMESTAMP|TS|)$', na=False)]

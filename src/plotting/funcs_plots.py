@@ -118,21 +118,21 @@ def plot_multilevel_slowdata_and_fluxes(
     # ── 1: Relative Humidity ──────────────────────────────────────────────────
     ax[1].plot(_rs(convert_RH_liquid_to_ice(slow_sfc['RH'], slow_sfc['TA'])),
                label='RH 2m', color=c_2m)
-    ax[1].plot(_rs(slow_bottom['RH_5m_Avg']),  label='RH 5m',  color=c_5m)
-    for col, lbl, col_clr in [('RH_10m_Avg', 'RH 10m', c_10m),
-                               ('RH_16m_Avg', 'RH 16m', c_16m)]:
+
+    rh_5m = convert_RH_liquid_to_ice(slow_bottom['RH_5m_Avg'], slow_bottom['Temp_5m_Avg'])
+    ax[1].plot(_rs(rh_5m), label='RH 5m', color=c_5m)
+
+    for col, temp_col, lbl, col_clr in [('RH_10m_Avg', 'Temp_10m_Avg', 'RH 10m', c_10m),
+                                        ('RH_16m_Avg', 'Temp_16m_Avg', 'RH 16m', c_16m)]:
         s = _col(slow_lower, col)
-        if s is not None:
-            series = _rs(s)
-            if series.median() < 5:
-                series = series * 100
-            ax[1].plot(series, label=lbl, color=col_clr)
+        t = _col(slow_lower, temp_col)
+        if s is not None and t is not None:
+            ax[1].plot(_rs(convert_RH_liquid_to_ice(s, t)), label=lbl, color=col_clr)
+
     rh_up = _col(slow_upper, 'RH_26m_Avg')
-    if rh_up is not None:
-        series = _rs(rh_up)
-        if series.median() < 5:
-            series = series * 100
-        ax[1].plot(series, label='RH 26m', color=c_26m)
+    temp_up = _col(slow_upper, 'Temp_26m_Avg')
+    if rh_up is not None and temp_up is not None:
+        ax[1].plot(_rs(convert_RH_liquid_to_ice(rh_up, temp_up)), label='RH 26m', color=c_26m)
     ax[1].set_ylabel('RH wrt ice [%]')
     ax[1].set_ylim(0, 115)
     ax[1].legend(frameon=False, ncol=3)
@@ -193,14 +193,16 @@ def plot_multilevel_slowdata_and_fluxes(
                    label='LW_net 16m', color=c_16m, linestyle='dashed')
     # UPPER: same naming convention
     for sw_dn, sw_up, lw_dn, lw_up, lbl, col_clr in [
-        ('Incoming_SW_26m_Avg', 'Outgoing_SW_26m_Avg', 'Incoming_LW_26m_Avg', 'Outgoing_LW_26m_Avg', '26m', c_26m),
+        ('Incoming_SW_26m_Avg', 'Outgoing_SW_26m_Avg', 'Incoming_UW_26m_Avg', 'Outgoing_UW_26m_Avg', '26m', c_26m),
         ('SWdown_26m_Avg', 'SWup_26m_Avg', 'LWdown_26m_Avg', 'LWup_26m_Avg', '26m', c_26m),
     ]:
         if all(c in slow_upper.columns for c in [sw_dn, sw_up, lw_dn, lw_up]):
-            ax[4].plot(_rs(-(slow_upper[sw_dn] - slow_upper[sw_up])),
-                       label=f'SW_net {lbl}', color=col_clr)
-            ax[4].plot(_rs(-(slow_upper[lw_dn] - slow_upper[lw_up])),
-                       label=f'LW_net {lbl}', color=col_clr, linestyle='dashed')
+            sw_net = _rs(-(slow_upper[sw_dn] - slow_upper[sw_up]))
+            lw_net = _rs(-(slow_upper[lw_dn] - slow_upper[lw_up]))
+            sw_net = sw_net[sw_net.between(-500, 500)]
+            lw_net = lw_net[lw_net.between(-500, 500)]
+            ax[4].plot(sw_net, label=f'SW_net {lbl}', color=col_clr)
+            ax[4].plot(lw_net, label=f'LW_net {lbl}', color=col_clr, linestyle='dashed')
             break
     ax[4].set_ylabel(r'Net Radiation [Wm$^{-2}$]')
     ax[4].legend(frameon=False, ncol=3)

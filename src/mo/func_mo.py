@@ -63,8 +63,34 @@ def calc_psi_stable_holtslag(zeta):
     # Same for momentum and scalars
     psi_m = -(0.7 * zeta + 0.75 * (zeta - 14.28) * np.exp(-0.35 * zeta) + 10.71)
     psi_s = psi_m
-    
+
     return {'m': psi_m, 's': psi_s}
+
+
+def calc_phi_stable_holtslag(zeta):
+    """
+    Dimensionless gradient functions for stable and neutral conditions according to
+    Holtslag and DeBruin (1988).
+
+    These are the gradient counterparts of calc_psi_stable_holtslag, obtained from
+    phi = 1 - zeta * d(psi)/d(zeta), so both describe the same profile. Use phi (not psi)
+    wherever a local gradient is needed, e.g. eddy diffusivities; phi -> 1 at neutral.
+
+    Parameters:
+        zeta (array-like): Stability parameter (must be >= 0)
+
+    Returns:
+        dict: Dictionary with 'm' (momentum) and 's' (scalars) phi values
+    """
+    zeta = np.asarray(zeta)
+    if np.any(zeta < 0):
+        raise ValueError("zeta is not >= 0")
+
+    # Same for momentum and scalars, as for psi
+    phi_m = 1 + zeta * (0.7 + 0.75 * np.exp(-0.35 * zeta) * (6 - 0.35 * zeta))
+    phi_s = phi_m
+
+    return {'m': phi_m, 's': phi_s}
 
 
 # Unstable stratification -------------------------------------------------
@@ -120,11 +146,36 @@ def calc_psi_unstable_paulson_stearns_weidner(zeta):
     psi_s = (np.log((1 + x + x**2)**1.5) - 
              np.sqrt(3) * np.arctan((1 + 2 * x) / np.sqrt(3)) + 
              0.1659)
-    # Note: The paper is not clear about whether to first apply the power of 1.5 and then the 
-    # logarithm or first the logarithm and then the power of 1.5; however, the former makes more 
+    # Note: The paper is not clear about whether to first apply the power of 1.5 and then the
+    # logarithm or first the logarithm and then the power of 1.5; however, the former makes more
     # sense because otherwise psi_s does not approach zero but -0.496 for zeta approaching zero.
-    
+
     return {'m': psi_m, 's': psi_s}
+
+
+def calc_phi_unstable_paulson_stearns_weidner(zeta):
+    """
+    Dimensionless gradient functions of Paulson (original) for momentum and of Stearns and
+    Weidner (1993) for scalars.
+
+    These are the gradient counterparts of calc_psi_unstable_paulson_stearns_weidner, obtained
+    from phi = 1 - zeta * d(psi)/d(zeta), so both describe the same profile. Use phi (not psi)
+    wherever a local gradient is needed, e.g. eddy diffusivities; phi -> 1 at neutral.
+
+    Parameters:
+        zeta (array-like): Stability parameter (must be < 0)
+
+    Returns:
+        dict: Dictionary with 'm' (momentum) and 's' (scalars/temperature) phi values
+    """
+    zeta = np.asarray(zeta)
+    if np.any(zeta >= 0):
+        raise ValueError("zeta is not < 0")
+
+    phi_m = (1 - 15 * zeta)**-0.25
+    phi_s = (1 - 22.5 * zeta)**(-1/3)
+
+    return {'m': phi_m, 's': phi_s}
 
 
 def calc_bulk_kinemat_flux(u_up, u_low, scalar_up, scalar_low, coeff):

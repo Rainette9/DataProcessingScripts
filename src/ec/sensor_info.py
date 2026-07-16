@@ -99,7 +99,7 @@ def get_sensor_info(sensor, year=None):
             'TH': 5.58,
             'RAD': 5.17,
             'sonic': 5.17,
-            'FC': 3.85,           # Flowcapt (lower bar)
+            'FC': 4.85,           # Flowcapt (upper bar)
             'SPC': 4.78
         }
     elif sensor == 'BOTTOM':

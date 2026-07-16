@@ -220,3 +220,32 @@ def calc_qv_surface(T_surf, pressure, ice=True):
         'rho_air_surf': rho_air_surf,
         'Ls': Ls
     }
+
+
+
+def synchronize_nans_all_columns(*dfs):
+    """
+    Synchronizes NaN values across multiple DataFrames for all columns based on their timestamps.
+
+    Parameters:
+        *dfs: Variable number of pandas DataFrames to synchronize.
+
+    Returns:
+        A tuple of DataFrames with synchronized NaN values for all columns.
+    """
+    # Create a continuous datetime index from start to end with the desired frequency
+    for df in dfs:
+        df=resample_with_threshold(df, '30min', True, '30min', 80)
+    continuous_index = pd.date_range(start=start, end=end, freq='30min')
+    
+    # Reindex each DataFrame to ensure continuity and fill missing timestamps with NaN
+    synced_dfs = [df.reindex(continuous_index) for df in dfs]
+    
+    # Synchronize NaN values across all columns
+    for i, df in enumerate(synced_dfs):
+        for col in df.columns:
+            for other_df in synced_dfs:
+                if col in other_df.columns:
+                    df.loc[other_df[col].isna(), col] = np.nan
+    
+    return tuple(synced_dfs)
