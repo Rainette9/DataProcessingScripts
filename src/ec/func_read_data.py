@@ -127,6 +127,8 @@ def read_data(folder_path, fastorslow, sensor, start=None, end=None, plot_data=F
                         data.set_index('TIMESTAMP', inplace=True)
                         # Convert all columns to numeric, coercing errors to NaN
                         data = data.apply(pd.to_numeric, errors='coerce')
+                        if fastorslow == 'slow':
+                            data = normalize_RH_to_percent(data)
                         # Append the DataFrame to the list
                         data_frames.append(data)
                 
@@ -157,6 +159,42 @@ def read_data(folder_path, fastorslow, sensor, start=None, end=None, plot_data=F
     
     return combined_data
 
+
+
+def normalize_RH_to_percent(data, threshold=1.5):
+    """
+    Rescale relative humidity columns that are stored as a 0-1 fraction to percent.
+
+    The loggers switched convention mid-record: RH is a fraction up to 2026-01-01 and percent
+    from 2026-01-02 15:33 (the changeover happens inside a data gap). This cannot be keyed on
+    the timestamp, because the same day exists in more than one processed folder under
+    different conventions -- 2026-01-05 reads 0.781 under 2025/processed_slow and 78.1 under
+    2026/processed_slow, the latter being a reprocessing of the former. The convention belongs
+    to the file, not to the date, so it is decided per file from the magnitude.
+
+    A file is treated as a fraction when its largest positive RH does not exceed threshold.
+    Percent-scaled RH never comes close: the lowest values on record here are around 17%,
+    against a fraction ceiling of 1. Files holding only sentinels (-799900 appears at 26 m and
+    16 m from 2026-03) have no positive values and are left alone rather than scaled into
+    even larger nonsense.
+
+    Parameters:
+    data : pd.DataFrame
+        Slow data for a single file, already converted to numeric.
+    threshold : float
+        Largest positive value still read as a fraction.
+
+    Returns:
+    pd.DataFrame
+        The same DataFrame, with fraction-scaled RH columns multiplied by 100.
+    """
+    for col in data.columns:
+        if col != 'RH' and not col.startswith('RH_'):
+            continue
+        positive = data[col][data[col] > 0]
+        if len(positive) and positive.max() <= threshold:
+            data[col] = data[col] * 100
+    return data
 
 
 def extract_height_from_column(column_name):

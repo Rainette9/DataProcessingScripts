@@ -71,12 +71,19 @@ def convert_RH_liquid_to_ice(RH_liquid, T):
 def RH_to_specific_humidity(RH, T, P):
     """
     Convert relative humidity to specific humidity (water vapor mixing ratio).
-    
+
+    RH is assumed to be **with respect to liquid water**, which is how the Young/Vaisala
+    capacitive probes are calibrated. The actual vapour pressure is therefore RH * e_s,liquid
+    at all temperatures -- the reference is set by the sensor calibration, not by whether the
+    air is above or below freezing. To get an ice-referenced RH instead, convert it first with
+    convert_RH_liquid_to_ice (the specific humidity is the same either way).
+
     Parameters:
-        RH (float or array-like): Relative humidity (0-100 for percent, or 0-1 for fraction)
+        RH (float or array-like): Relative humidity w.r.t. liquid water
+                                  (0-100 for percent, or 0-1 for fraction)
         T (float or array-like): Temperature (°C)
         P (float or array-like): Atmospheric pressure (Pa)
-    
+
     Returns:
         float or array-like: Specific humidity q (kg/kg)
     """
@@ -84,24 +91,22 @@ def RH_to_specific_humidity(RH, T, P):
     RH = np.asarray(RH)
     T = np.asarray(T)
     P = np.asarray(P)
-    
+
     # If RH is in percent (0-100), convert to fraction
     # Check if maximum value suggests it's in percent
     if np.nanmax(RH) > 1:
         RH = RH / 100
-    
-    # Get saturation vapor pressure (Pa)
-    # Use ice formula if T < 0, liquid if T >= 0
-    e_s = np.where(T < 0, 
-                   vapor_pressure_ice_MK2005(T),
-                   vapor_pressure_liquid_MK2005(T))
-    
+
+    # Saturation vapour pressure over liquid water (Pa). RH is liquid-referenced, so
+    # e = RH * e_s,liquid gives the actual vapour pressure regardless of temperature.
+    e_s = vapor_pressure_liquid_MK2005(T)
+
     # Actual vapor pressure (Pa)
     e = RH * e_s
-    
+
     # Specific humidity (kg/kg)
     q = epsilon * e / (P - (1 - epsilon) * e)
-    
+
     return q
 
 def calc_es(temp, ice=False):

@@ -5,9 +5,385 @@ import sys
 import os
 import matplotlib.dates as mdates
 from ec import func_read_data
-from utils.utils import convert_RH_liquid_to_ice, resample_with_threshold
+from utils.utils import (convert_RH_liquid_to_ice, resample_with_threshold,
+                         RH_to_specific_humidity,
+                         vapor_pressure_liquid_MK2005, vapor_pressure_ice_MK2005)
+from utils.constants import epsilon
 
 
+# One fixed colour per measurement height, matching the rest of this module.
+HEIGHT_COLORS = ['royalblue', 'mediumseagreen', 'gold', 'tomato', 'orchid']
+
+
+# --- manufacturer accuracy specifications ------------------------------------
+# HygroVUE10 (Campbell Scientific), manual rev. 07/2021:
+#   RH  +-1.5% (0-80% RH) / +-2% (80-100% RH) at 25 degC, plus <+-1% RH temperature
+#       dependence over -40 to +60 degC
+#   T   +-0.2 degC over -40 to 70 degC
+# ATMOS 14 (METER Group), manual Figure 4/Figure 5:
+#   RH  read off the accuracy grid; the grid's coldest column is 0 degC
+#   T   from the accuracy curve, about +-0.7 degC at 0 degC rising to +-0.95 at -40 degC
+_ATMOS14_RH_NODES = [0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50,
+                     55, 60, 65, 70, 75, 80, 85, 90, 95, 100]
+_ATMOS14_RH_ACC_0C = [12, 8, 8, 5, 4, 4, 4, 4, 4, 4, 4,
+                      4, 4, 4, 4, 4, 6, 5, 5, 5, 5]
+_ATMOS14_T_NODES = [-40, -20, 0, 20, 40, 60, 80]
+_ATMOS14_T_ACC = [0.95, 0.85, 0.70, 0.42, 0.42, 0.48, 0.80]
+
+
+def sensor_accuracy(model, RH, T):
+    """
+    Manufacturer accuracy for an RH/T probe, as (sigma_RH in % points, sigma_T in degC).
+
+    Note that the ATMOS 14 RH grid stops at 0 degC, so every Antarctic value is an
+    extrapolation off the cold end of what METER specifies. Its 0 degC column is used here
+    unchanged, which is optimistic: capacitive RH accuracy does not usually improve as the
+    sensor gets colder.
+
+    Parameters:
+    model : {'HygroVUE10', 'ATMOS14'}
+    RH : array-like
+        Relative humidity (%).
+    T : array-like
+        Air temperature (degC).
+
+    Returns:
+    (sigma_RH, sigma_T)
+    """
+    RH = np.asarray(RH, dtype=float)
+    T = np.asarray(T, dtype=float)
+    if model == 'HygroVUE10':
+        base = np.where(RH <= 80, 1.5, 2.0)
+        # the temperature dependence is a separate, independent term in the manual
+        return np.hypot(base, 1.0), np.full_like(T, 0.2)
+    if model == 'ATMOS14':
+        sig_rh = np.interp(RH, _ATMOS14_RH_NODES, _ATMOS14_RH_ACC_0C)
+        sig_t = np.interp(T, _ATMOS14_T_NODES, _ATMOS14_T_ACC)
+        return sig_rh, sig_t
+    raise ValueError(f"unknown sensor model {model!r}")
+
+
+def plot_mixing_ratio_with_spec_error(levels, pressure, start, end, models=None,
+                                      resample_time=None, min_valid_percent=80,
+                                      interpolate=False, max_gap='1h', ax=None):
+    """
+    Temperature, relative humidity and mixing ratio per arm, banded by manufacturer accuracy.
+
+    Each panel carries the manufacturer's own accuracy for that quantity: sigma_T and
+    sigma_RH straight off the spec sheet (see sensor_accuracy), and for specific humidity the
+    two propagated together. Specific humidity uses RH_to_specific_humidity from utils, the
+    same routine the flux/gradient code uses, so this figure and the K estimates are on one
+    definition; its band is obtained by pushing +-sigma_RH and +-sigma_T through that routine
+    and adding the two responses in quadrature.
+
+    That band is the irreducible uncertainty of each point before any field
+    cross-calibration, so it is the honest yardstick for whether a difference between two
+    arms means anything at all.
+
+    Parameters:
+    levels : sequence of (T, RH, z) or (T, RH, z, model)
+        Air temperature (degC), relative humidity (% wrt liquid) and surveyed height (m), so
+        that the same list serves Kh_Kq_profile_fit and plot_RH_intercomparison. The sensor
+        model may be appended per level, or supplied separately via models.
+    pressure : pd.Series
+        Air pressure (Pa).
+    start, end : str or Timestamp
+        Window to plot.
+    models : sequence of str or None
+        Sensor model per level, in the order given, as accepted by sensor_accuracy. Required
+        unless every level already carries its model.
+    resample_time : str or None
+        Averaging window passed to resample_with_threshold, e.g. '15min'. None (the default)
+        plots the data at its native resolution without resampling.
+    min_valid_percent, interpolate, max_gap
+        Forwarded to resample_with_threshold; ignored when resample_time is None.
+    ax : sequence of 3 matplotlib axes, or None
+
+    Returns:
+    (fig, ax)
+    """
+    if models is not None:
+        if len(models) != len(levels):
+            raise ValueError(f"got {len(levels)} levels but {len(models)} models")
+        levels = [(lv[0], lv[1], lv[2], m) for lv, m in zip(levels, models)]
+    short = [i for i, lv in enumerate(levels) if len(lv) < 4]
+    if short:
+        raise ValueError(
+            f"level(s) {short} carry no sensor model: pass models=[...] alongside the "
+            f"3-element levels used by Kh_Kq_profile_fit, or append the model to each level")
+    levels = sorted(levels, key=lambda lv: lv[2])
+    if ax is None:
+        fig, ax = plt.subplots(3, 1, figsize=(13, 11), sharex=True)
+    else:
+        fig = ax[0].figure
+
+    def _prep(series):
+        s = pd.to_numeric(series, errors='coerce')
+        s = s[~s.index.duplicated(keep='first')].sort_index().loc[start:end]
+        if resample_time is None:
+            return s
+        return resample_with_threshold(s, resample_time, interpolate=interpolate,
+                                       max_gap=max_gap, min_valid_percent=min_valid_percent)
+
+    # No dropna anywhere: a NaN has to survive so a gap breaks the line instead of being
+    # bridged by a straight segment that looks like data.
+    frame = {}
+    for i, (T, RH, _, _) in enumerate(levels):
+        frame[f'T{i}'] = _prep(T)
+        frame[f'RH{i}'] = _prep(RH)
+    d = pd.DataFrame(frame)
+    # Pressure comes off the flux grid (3 or 30 min) while the arms are on the slow grid
+    # (1 min). Resampling puts both on one grid; without it, P would be absent on most slow
+    # timestamps and would take r down with it, so it is interpolated onto the arms' index.
+    # P varies slowly and enters r only as a 1/P scaling, so this is harmless either way.
+    p = _prep(pressure)
+    d['P'] = p.reindex(p.index.union(d.index)).interpolate(
+        method='time', limit_direction='both').reindex(d.index)
+
+    def _q(RH, T, P):
+        # RH is liquid-referenced; RH_to_specific_humidity uses liquid saturation directly.
+        return RH_to_specific_humidity(RH, T, P)
+
+    def _q_and_sigma(RH, T, P, model):
+        q = _q(RH, T, P)
+        sig_rh, sig_t = sensor_accuracy(model, RH, T)
+        # Propagate the spec accuracy through the very routine used for q, by a symmetric
+        # perturbation on each input; the two 1-sigma responses add in quadrature.
+        dq_rh = 0.5 * np.abs(_q(RH + sig_rh, T, P) - _q(RH - sig_rh, T, P))
+        dq_t = 0.5 * np.abs(_q(RH, T + sig_t, P) - _q(RH, T - sig_t, P))
+        sigma = np.hypot(dq_rh, dq_t)
+        return (pd.Series(q, index=RH.index),
+                pd.Series(sigma, index=RH.index))
+
+    def _band(a, x, sigma, color):
+        a.plot(x.index, x, color=color, linewidth=1.6)
+        a.fill_between(x.index, x - sigma, x + sigma, color=color, alpha=0.18, linewidth=0)
+
+    for i, (_, _, z_i, model) in enumerate(levels):
+        T_i, RH_i = d[f'T{i}'], d[f'RH{i}']
+        q_i, sig_q = _q_and_sigma(RH_i, T_i, d['P'], model)
+        sig_rh, sig_t = sensor_accuracy(model, RH_i, T_i)
+        c = HEIGHT_COLORS[i % len(HEIGHT_COLORS)]
+        ax[0].plot(T_i.index, T_i, color=c, linewidth=1.6, label=f'{z_i:.2f} m  {model}')
+        ax[0].fill_between(T_i.index, T_i - sig_t, T_i + sig_t, color=c, alpha=0.18,
+                           linewidth=0)
+        _band(ax[1], RH_i, pd.Series(sig_rh, index=RH_i.index), c)
+        _band(ax[2], q_i * 1e3, sig_q * 1e3, c)
+
+    ax[0].set_ylabel('air temperature [degC]')
+    ax[0].set_title('Humidity arms with manufacturer accuracy bands'
+                    + ('' if resample_time is None else f'  ({resample_time} means)'))
+    ax[0].legend(fontsize=8, ncol=2)
+    ax[1].set_ylabel('RH wrt water [%]')
+    ax[2].set_ylabel('specific humidity [g/kg]')
+    for a in ax:
+        a.grid(alpha=0.25)
+    for lbl in ax[2].get_xticklabels():
+        lbl.set_rotation(20)
+        lbl.set_horizontalalignment('right')
+
+    fig.tight_layout()
+    return fig, ax
+
+
+def plot_RH_intercomparison(levels, pressure, ref_level=None, pair=None, trusted_pair=None,
+                            offsets=np.arange(-8, 8.1, 0.5)):
+    """
+    Compare the humidity arms as distributions, and show how sensitive the moisture
+    gradient is to a calibration offset on any one of them.
+
+    The arms all measure RH with respect to liquid water, but Antarctic air commonly sits at
+    saturation with respect to ice, which for a water-referenced sensor is a ceiling below
+    100% that moves with temperature (100 * es_ice/es_liq, about 92% at -8 degC and 84% at
+    -18 degC). Each probe levels off at its own value near that ceiling, and the spread
+    between arms is a calibration difference rather than real structure in the air. Because
+    Kq = -<w'q'> / (dq/dz) divides by a gradient, an offset of the same size as the true
+    difference across the layer does not merely add scatter, it removes the signal.
+
+    Panels:
+        A  RH wrt water, per arm      - the different ceilings are visible directly
+        B  RH wrt ice, per arm        - a well-behaved arm piles up at 100%, no further
+        C  mixing ratio, per arm      - the wet/dry bias each offset produces
+        D  mixing ratio difference against the reference arm, split by humidity - a span
+           (multiplicative) error grows with humidity, a fixed offset does not
+        E  the pair gradient as a function of an offset applied to the top arm
+        F  Kq/Kh against the same offset, if fluxes are supplied
+
+    Parameters:
+    levels : sequence of (T, RH, z)
+        Air temperature (degC), relative humidity (% wrt liquid) and surveyed height (m) for
+        each arm, lowest first. Everything is aligned on the intersection of their indices.
+    pressure : pd.Series
+        Air pressure (Pa), e.g. eddypro_data['air_pressure'].
+    ref_level : int or None
+        Index into levels (after sorting by height) used as the reference arm that panels D
+        and E difference against. Defaults to the second arm.
+    pair : (int, int) or None
+        Indices (lower, upper) of the arm pair whose gradient panel F sweeps. Use the pair
+        that brackets the sonic, since that is the gradient Kq actually divides by. Defaults
+        to the lowest and highest arms.
+    trusted_pair : (int, int) or None
+        Indices of two arms sharing one logger, whose gradient carries no cross-mast
+        calibration difference. Drawn on panel F as the target the swept curve should meet,
+        and the crossing gives the correction that would reconcile the two.
+    offsets : array-like
+        Hypothetical RH corrections (percentage points) swept in panel F.
+
+    Returns:
+    (fig, ax)
+    """
+    z = [lv[2] for lv in levels]
+    order = np.argsort(z)
+    levels = [levels[i] for i in order]
+    z = np.asarray([lv[2] for lv in levels], dtype=float)
+    if ref_level is None:
+        ref_level = min(1, len(levels) - 1)
+
+    # Align every arm and the pressure on a common index. Each series is de-duplicated first:
+    # the slow files occasionally repeat a timestamp, and pandas cannot align on a duplicated
+    # index ("cannot reindex on an axis with duplicate labels").
+    def _dedup(series):
+        series = pd.to_numeric(series, errors='coerce')
+        return series[~series.index.duplicated(keep='first')].sort_index()
+
+    frame = {'P': _dedup(pressure)}
+    for i, (T, RH, _) in enumerate(levels):
+        frame[f'T{i}'] = _dedup(T)
+        frame[f'RH{i}'] = _dedup(RH)
+    d = pd.DataFrame(frame).dropna()
+    for i in range(len(levels)):
+        d = d[(d[f'RH{i}'] > 1) & (d[f'RH{i}'] <= 100)]
+
+    def _mixing_ratio(RH_liquid, T, P):
+        """Mixing ratio (kg/kg) from RH with respect to liquid water."""
+        e = RH_liquid / 100 * vapor_pressure_liquid_MK2005(T)
+        return epsilon * e / (P - e)
+
+    labels = [f'{zi:.2f} m' for zi in z]
+    colors = [HEIGHT_COLORS[i % len(HEIGHT_COLORS)] for i in range(len(levels))]
+    rh_ice = [convert_RH_liquid_to_ice(d[f'RH{i}'], d[f'T{i}']) for i in range(len(levels))]
+    r = [_mixing_ratio(d[f'RH{i}'], d[f'T{i}'], d['P']) for i in range(len(levels))]
+
+    fig, ax = plt.subplots(2, 3, figsize=(17, 9))
+    ax = ax.ravel()
+
+    # --- A: RH wrt water -----------------------------------------------------
+    for i in range(len(levels)):
+        ax[0].hist(d[f'RH{i}'], bins=np.arange(0, 101, 2), histtype='step', linewidth=2,
+                   density=True, color=colors[i], label=labels[i])
+    ax[0].set_xlabel('RH wrt water [%]')
+    ax[0].set_ylabel('density')
+    ax[0].set_title('A  RH wrt water: each arm levels off\nat its own ceiling')
+    ax[0].legend(fontsize=8)
+
+    # --- B: RH wrt ice -------------------------------------------------------
+    for i in range(len(levels)):
+        ax[1].hist(rh_ice[i], bins=np.arange(0, 131, 2), histtype='step', linewidth=2,
+                   density=True, color=colors[i], label=labels[i])
+    ax[1].axvline(100, color='0.3', linestyle='--', linewidth=1.5)
+    ax[1].annotate('ice saturation', xy=(100, ax[1].get_ylim()[1] * 0.9), xytext=(4, 0),
+                   textcoords='offset points', fontsize=8, color='0.3')
+    ax[1].set_xlabel('RH wrt ice [%]')
+    ax[1].set_ylabel('density')
+    ax[1].set_title('B  RH wrt ice: a sound arm stops at 100%,\none reading high overshoots')
+    ax[1].legend(fontsize=8)
+
+    # --- C: mixing ratio -----------------------------------------------------
+    for i in range(len(levels)):
+        ax[2].hist(r[i] * 1e3, bins=np.linspace(0, 3, 61), histtype='step', linewidth=2,
+                   density=True, color=colors[i], label=f'{labels[i]}  med {r[i].median()*1e3:.3f}')
+        ax[2].axvline(r[i].median() * 1e3, color=colors[i], linestyle=':', linewidth=1.5)
+    ax[2].set_xlabel('mixing ratio [g/kg]')
+    ax[2].set_ylabel('density')
+    ax[2].set_title('C  derived mixing ratio: the arms are\nnearly indistinguishable in bulk')
+    ax[2].legend(fontsize=8)
+
+    # --- D: difference against the reference arm, as a distribution -----------
+    ref = r[ref_level]
+    rh_ref = d[f'RH{ref_level}']
+    for i in range(len(levels)):
+        if i == ref_level:
+            continue
+        diff = (r[i] - ref) * 1e3
+        ax[3].hist(diff, bins=np.linspace(-0.4, 0.4, 81), histtype='step', linewidth=2,
+                   density=True, color=colors[i],
+                   label=f'{labels[i]} - {labels[ref_level]}   med {diff.median():+.3f}')
+    ax[3].axvline(0, color='0.3', linestyle='--', linewidth=1.5)
+    ax[3].set_xlabel(f'mixing ratio difference from {labels[ref_level]} [g/kg]')
+    ax[3].set_ylabel('density')
+    ax[3].set_title('D  arm-to-arm difference: wider than the\nreal vertical signal')
+    ax[3].legend(fontsize=8)
+
+    # --- E: is the difference a span error or a fixed offset? -----------------
+    bins = [0, 40, 55, 70, 100]
+    centres = [(bins[k] + bins[k + 1]) / 2 for k in range(len(bins) - 1)]
+    for i in range(len(levels)):
+        if i == ref_level:
+            continue
+        diff = (r[i] - ref) * 1e3
+        med = diff.groupby(pd.cut(rh_ref, bins), observed=True).median()
+        ax[4].plot(centres, med.values, 'o-', color=colors[i], linewidth=2, markersize=7,
+                   label=f'{labels[i]} - {labels[ref_level]}')
+    ax[4].axhline(0, color='0.3', linestyle='--', linewidth=1.5)
+    ax[4].set_xlabel(f'RH at reference arm {labels[ref_level]} [%]')
+    ax[4].set_ylabel('median mixing ratio difference [g/kg]')
+    ax[4].set_title('E  difference grows with humidity =\nspan error, not a fixed offset')
+    ax[4].legend(fontsize=8)
+
+    # --- F: sensitivity of the pair gradient to an offset on the top arm ------
+    # Sweep a hypothetical calibration correction on the top arm and read off the gradient it
+    # would produce. x=0 is the data as it stands. The honest target is the gradient measured
+    # by the two reference-mast arms, which share a logger and so carry no cross-mast offset.
+    i_top, i_bot = pair if pair is not None else (0, len(levels) - 1)
+    dz = z[i_top] - z[i_bot]
+    grad = []
+    for off in offsets:
+        r_top = _mixing_ratio(d[f'RH{i_top}'] + off, d[f'T{i_top}'], d['P'])
+        grad.append(((r_top - r[i_bot]) / dz).median())
+    grad = np.asarray(grad) * 1e3
+    ax[5].plot(offsets, grad, color=colors[i_top], linewidth=2, label='swept pair gradient')
+    ax[5].axhline(0, color='0.3', linestyle='--', linewidth=1.5)
+    ax[5].axvline(0, color='0.5', linestyle=':', linewidth=1.5)
+    ax[5].annotate('your data\n(no correction)', xy=(0, grad[np.argmin(np.abs(offsets))]),
+                   xytext=(6, -30), textcoords='offset points', fontsize=8, color='0.35',
+                   arrowprops=dict(arrowstyle='->', color='0.5', linewidth=1))
+
+    if trusted_pair is not None:
+        a, b = trusted_pair
+        g_trust = ((r[b] - r[a]) / (z[b] - z[a])).median() * 1e3
+        ax[5].axhline(g_trust, color='0.2', linestyle='-.', linewidth=1.5,
+                      label=f'within-mast {labels[a]}->{labels[b]}')
+        need = np.interp(g_trust, grad, offsets) if grad[0] < grad[-1] else \
+            np.interp(g_trust, grad[::-1], offsets[::-1])
+        ax[5].plot([need], [g_trust], 'o', color='0.2', markersize=9, zorder=5)
+        ax[5].annotate(f'{need:+.1f}% would reconcile\nwith the within-mast gradient',
+                       xy=(need, g_trust), xytext=(8, 14), textcoords='offset points',
+                       fontsize=8, color='0.2',
+                       arrowprops=dict(arrowstyle='-', color='0.5', linewidth=1))
+
+    # where the measured gradient passes through zero, Kq = -<w'q'>/(dr/dz) diverges
+    sign_change = np.where(np.diff(np.sign(grad)))[0]
+    if len(sign_change):
+        x0 = np.interp(0, grad, offsets) if grad[0] < grad[-1] else \
+            np.interp(0, grad[::-1], offsets[::-1])
+        ax[5].plot([x0], [0], 'o', color='crimson', markersize=9, zorder=5)
+        ax[5].annotate(f'gradient = 0 at {x0:+.1f}%\nKq diverges, sign flips',
+                       xy=(x0, 0), xytext=(-4, 24), textcoords='offset points', fontsize=8,
+                       color='crimson', ha='right',
+                       arrowprops=dict(arrowstyle='-', color='crimson', linewidth=1))
+    ax[5].set_xlabel(f'hypothetical RH correction on {labels[i_top]} [% points]')
+    ax[5].set_ylabel(f'median d(r)/dz {labels[i_bot]}->{labels[i_top]} [g/kg/m]')
+    title_f = f'F  what-if: how the {labels[i_bot]}->{labels[i_top]} gradient\nresponds to '\
+              f'miscalibration of {labels[i_top]}'
+    ax[5].set_title(title_f)
+    ax[5].legend(fontsize=8, loc='lower right')
+
+    for a in ax:
+        a.grid(alpha=0.25)
+    fig.suptitle('Humidity arm intercomparison: distributions and the sensitivity of the '
+                 'moisture gradient to a calibration offset', fontsize=13)
+    fig.tight_layout()
+    return fig, ax
 
 
 
