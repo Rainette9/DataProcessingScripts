@@ -8,7 +8,7 @@ import glob
 import csv
 
 from utils.constants import *
-from utils.utils import convert_RH_liquid_to_ice
+from utils.utils import convert_RH_liquid_to_ice, Lsubl
 
 
 def read_data(folder_path, fastorslow, sensor, start=None, end=None, plot_data=False, file_numbers=None):
@@ -480,18 +480,6 @@ def save_despiked_data(fastdata, despiked_fastdata, output_folder, sensor):
             print(f"Data saved per hour in {file_path}")
 
 
-def Lsubl(temp):
-    """
-    Function for latent heat of sublimation (J/kg) depending on temperature (K)
-    
-    Parameters:
-        temp (array-like): Temperature in K
-    
-    Returns:
-        array-like: Latent heat of sublimation in J/kg
-    """
-    return (2834.1 - 0.29 * (temp-273.15) - 0.004 * (temp-273.15)**2) * 1e3
-
 def LvapEddyPro(temp):
     """
     Calculate latent heat of evaporation based on EddyPro formula.
@@ -542,8 +530,9 @@ def read_eddypro_data(folder, sensor, qc=False, qc_level=1, filename_filter=None
     eddypro_data= eddypro_data.apply(pd.to_numeric, errors='coerce')
     if qc==False and 'LE' in eddypro_data.columns:
         Ls_eddy = LvapEddyPro(eddypro_data['air_temperature'] )
-        # Latent heat of sublimation at air temperature (formula as in LES-LSM)
-        Ls = Lsubl(eddypro_data['air_temperature'] )
+        # Latent heat of sublimation at air temperature (formula as in LES-LSM).
+        # utils.Lsubl takes degC; EddyPro air_temperature is in K.
+        Ls = Lsubl(eddypro_data['air_temperature'] - 273.15)
         # Eddy latent heat flux using latent heat of sublimation instead of latent heat of evaporation
         ql_ec = eddypro_data['LE'] * Ls / Ls_eddy
         eddypro_data['LE']=ql_ec
