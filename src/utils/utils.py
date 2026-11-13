@@ -4,10 +4,20 @@ import pandas as pd
 from .constants import epsilon, R_dry_air, R_w
 
 
+def _fill_short_gaps(series, limit):
+    """Linearly interpolate runs of at most ``limit`` consecutive NaNs inside ``series``.
+    Longer runs stay NaN as a whole, and leading/trailing NaNs are never filled."""
+    isna = series.isna()
+    run_len = isna.groupby((isna != isna.shift()).cumsum()).transform('sum')   # length of the NaN run of each value
+    short = isna & (run_len <= limit)
+    return series.where(~short, series.interpolate(limit_area='inside'))
+
+
 def resample_with_threshold(data, resample_time, interpolate=False, max_gap='1h', min_valid_percent=80):
     """
     Returns NaN if the percentage of valid values within the resample time is less than min_valid_percent.
-    Linearly interpolates gaps in the data only if the gaps are smaller than max_gap.
+    Linearly interpolates gaps in the data only if the whole gap is at most max_gap long;
+    longer gaps are left empty. Interpolated values count as valid in the percentage.
 
     Parameters:
         data (pd.Series): The input data to be resampled.
@@ -28,7 +38,12 @@ def resample_with_threshold(data, resample_time, interpolate=False, max_gap='1h'
             # Number of consecutive NaNs allowed to be interpolated
             limit = int(max_gap_seconds / freq_seconds)
             if limit > 0:
-                data = data.interpolate(limit=limit, limit_direction='both', limit_area='inside')
+                # fill only gaps whose whole length is at most max_gap; pandas' own `limit` would also
+                # fill the first and last `limit` values of every longer gap
+                if isinstance(data, pd.DataFrame):
+                    data = data.apply(_fill_short_gaps, limit=limit)
+                else:
+                    data = _fill_short_gaps(data, limit)
     # Resample the data
     resampled_data = data.resample(resample_time).mean()
     # Count the number of valid (non-NaN) values in each resample period
