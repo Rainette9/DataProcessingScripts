@@ -493,7 +493,13 @@ def LvapEddyPro(temp):
     return 1000 * (3147.5 - 2.37 * temp)
 
 
-def read_eddypro_data(folder, sensor, qc=False, qc_level=1, filename_filter=None):
+def read_eddypro_data(folder, sensor, qc=False, qc_level=1, filename_filter=None, one_per_folder=None):
+    """Read and concatenate EddyPro full_output (or qc_details) files under <folder>/<sensor>.
+
+    ``filename_filter``: substring the file name must contain (pick one run when a month folder
+    holds several). ``one_per_folder='newest'`` keeps only the most recently written matching file
+    in each month folder, for months that hold several copies of the same run.
+    """
     # Read eddypro data from subfolders of the sensor folder
     sensor_folder = os.path.join(folder, sensor)
     files = glob.glob(os.path.join(sensor_folder, '**', 'eddypro_*_full_output*.csv'), recursive=True)
@@ -501,6 +507,13 @@ def read_eddypro_data(folder, sensor, qc=False, qc_level=1, filename_filter=None
         files = glob.glob(os.path.join(sensor_folder, '**', 'eddypro_*_qc_details*.csv'), recursive=True)
     if filename_filter is not None:
         files = [f for f in files if filename_filter in os.path.basename(f)]
+    if one_per_folder == 'newest':
+        by_dir = {}
+        for f in files:
+            d = os.path.dirname(f)
+            if d not in by_dir or os.path.getmtime(f) > os.path.getmtime(by_dir[d]):
+                by_dir[d] = f
+        files = sorted(by_dir.values())
     print("Files found:", files)
     # Extract the first row as metadata and remove it from the dataframe
     eddypro_data = pd.concat(
@@ -538,7 +551,7 @@ def read_eddypro_data(folder, sensor, qc=False, qc_level=1, filename_filter=None
         eddypro_data['LE']=ql_ec
     if 'H' in eddypro_data.columns:
         eddypro_data.loc[eddypro_data['qc_H']>=qc_level, 'H'] = np.nan
-        eddypro_data.loc[(eddypro_data['H'] > 200) | (eddypro_data['H'] < -400), 'H'] = np.nan
+        eddypro_data.loc[(eddypro_data['H'] > 200) | (eddypro_data['H'] < -350), 'H'] = np.nan
     if 'LE' in eddypro_data.columns:
         eddypro_data.loc[eddypro_data['qc_LE']>=qc_level, 'LE'] = np.nan
         eddypro_data.loc[(eddypro_data['LE'] > 200) | (eddypro_data['LE'] < -200), 'LE'] = np.nan
